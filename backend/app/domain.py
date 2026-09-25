@@ -74,8 +74,6 @@ def apply_changes(db: Session, user_id: str, body: ApplyRequest, *, authority: s
     seen = set()
     for change in body.operations:
         if change.action == "create":
-            if change.kind == "plan":
-                raise DomainError("NOT_IMPLEMENTED", "计划执行规则尚未开放。", 422)
             obj = FitnessObject(
                 id=uid(), user_id=user_id, kind=change.kind, payload=deepcopy(change.payload),
                 version=1, lifecycle="active", source="user_report", purpose="personal_coaching",

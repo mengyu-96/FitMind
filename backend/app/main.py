@@ -1,7 +1,7 @@
 import hashlib
 import secrets
 from datetime import timedelta
-from uuid import UUID, uuid4
+from uuid import NAMESPACE_URL, UUID, uuid4, uuid5
 
 from fastapi import Depends, FastAPI, Header, Query, Request
 from fastapi.exceptions import RequestValidationError
@@ -81,6 +81,36 @@ def create_app(settings: Settings | None = None, planner=None):
                                user_id=user.id, expires_at=now() + timedelta(hours=settings.session_hours)))
         return ok(request, {"access_token": token, "user_id": user.id,
                             "expires_in": settings.session_hours * 3600, "mode": "development"})
+
+    @app.post("/api/v1/auth/wechat-login")
+    def wechat_login(code: str, request: Request):
+        """Exchange a wx.login code; AppSecret stays server-side and is never logged."""
+        if not settings.wechat_app_secret:
+            raise DomainError("AUTH_NOT_CONFIGURED", "微信登录服务尚未配置 AppSecret。", 503)
+        import httpx
+        try:
+            response = httpx.get("https://api.weixin.qq.com/sns/jscode2session", params={
+                "appid": settings.wechat_app_id, "secret": settings.wechat_app_secret,
+                "js_code": code, "grant_type": "authorization_code",
+            }, timeout=10)
+            payload = response.json()
+        except (httpx.RequestError, ValueError):
+            raise DomainError("WECHAT_UNAVAILABLE", "微信登录服务暂时不可用，请重试。", 503) from None
+        if not response.is_success or payload.get("errcode") or not payload.get("openid"):
+            raise DomainError("WECHAT_LOGIN_FAILED", "微信登录未完成，请重试。", 401)
+        # OpenID is hashed for lookup; it is never returned to the client.
+        identity_key = str(uuid5(NAMESPACE_URL, settings.wechat_app_id + ":" + payload["openid"]))
+        token = secrets.token_urlsafe(40)
+        with sessions.begin() as db:
+            user = db.scalar(select(User).where(User.id == identity_key))
+            if user is None:
+                user = User(id=identity_key)
+                db.add(user)
+                db.flush()
+            db.add(AuthSession(token_hash=hashlib.sha256(token.encode()).hexdigest(), user_id=user.id,
+                               expires_at=now() + timedelta(hours=settings.session_hours)))
+        return ok(request, {"access_token": token, "user_id": user.id,
+                            "expires_in": settings.session_hours * 3600, "mode": "wechat"})
 
     @app.get("/api/v1/me")
     def me(request: Request, user_id=Depends(identity)):

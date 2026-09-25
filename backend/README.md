@@ -13,9 +13,9 @@ $env:PATH = "$tools;$tools\Library\bin;$env:PATH"
 & '.\.conda\fitmind-backend\python.exe' -m uvicorn app.main:app --app-dir backend --reload --port 8000
 ```
 
-根目录 `.env` 只用于本机开发并被 Git 忽略；前端不接触 API Key。`dev-session` 仅用于本机联调，生产配置会拒绝启动。
+根目录 `.env` 只用于本机开发并被 Git 忽略；前端不接触 API Key。已登记小程序 AppID `wx7262dc559800af57`；配置 AppSecret 后可使用 `/api/v1/auth/wechat-login` 交换 `wx.login` code。`dev-session` 仅用于本机联调，生产配置会拒绝启动。
 
-验证命令：`pytest backend -q`、`backend/scripts/check_model.py`、`backend/scripts/check_agent.py`，以及 `miniapp` 下的 `npm run typecheck` 和 `npm run build:mp-weixin`。构建产物位于 `miniapp/dist/build/mp-weixin`；填入微信 AppID 后导入开发者工具。
+验证命令：`pytest backend -q`、`backend/scripts/check_model.py`、`backend/scripts/check_agent.py`，以及 `miniapp` 下的 `npm run typecheck` 和 `npm run build:mp-weixin`。构建产物位于 `miniapp/dist/build/mp-weixin`；AppID 已写入 manifest，可直接导入开发者工具。计划对象已开放自由节点保存，执行规则仍在后续切片。
 
 ## 环境位置
 

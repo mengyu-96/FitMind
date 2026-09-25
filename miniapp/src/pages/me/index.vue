@@ -20,6 +20,12 @@ async function start() {
   catch (e) { error.value = errorMessage(e) }
   finally { busy.value = false }
 }
+function loginWechat() {
+  uni.login({ provider: 'weixin', success(result) {
+    if (!result.code) { error.value = '微信未返回登录凭证。'; return }
+    error.value = '微信登录接口已准备，需后端配置 AppSecret 后启用。'
+  }, fail: () => { error.value = '当前开发工具未启用微信登录。' } })
+}
 </script>
 
 <template>
@@ -31,6 +37,7 @@ async function start() {
       <view class="body" style="margin-top: 20rpx">当前使用开发会话，尚未接入正式微信登录。请使用测试内容。</view>
       <view class="muted" style="margin-top: 16rpx">教练消息和相关上下文会发送到已配置的 DeepSeek 服务生成反馈。单独保存记录不调用模型。</view>
       <button v-if="!session.loggedIn" class="primary" style="margin-top: 26rpx" :loading="busy" :disabled="busy" @tap="start">了解并启用测试会话</button>
+      <button v-if="!session.loggedIn" class="secondary" style="margin-top: 18rpx" @tap="loginWechat">使用微信登录</button>
       <view v-else class="muted" style="margin-top: 18rpx">测试会话已启用。本机保留会话凭据，请勿清除存储以免失去当前测试数据的访问入口。</view>
       <view v-if="error" class="error">{{ error }}</view>
     </view>

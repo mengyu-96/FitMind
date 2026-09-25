@@ -1,12 +1,12 @@
 {
   "name": "FitMind",
-  "appid": "",
+  "appid": "wx7262dc559800af57",
   "description": "自然记录，了解自己的训练",
   "versionName": "0.1.0",
   "versionCode": "100",
   "vueVersion": "3",
   "mp-weixin": {
-    "appid": "",
+    "appid": "wx7262dc559800af57",
     "setting": { "urlCheck": true, "es6": true, "minified": true },
     "usingComponents": true
   }

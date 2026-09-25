@@ -138,8 +138,10 @@ def test_envelope_and_release_guards(client, auth):
     invalid = client.post("/api/v1/agent-actions/apply", headers=auth, json={"user_id": "other"})
     assert invalid.status_code == 422
     assert "request_id" in invalid.json() and "error" in invalid.json()
-    assert submit(client, auth, [create(kind="plan")]).status_code == 422
-    with pytest.raises(ValueError, match="not ready for production"):
+    plan = submit(client, auth, [{"action": "create", "kind": "plan",
+                                 "payload": {"title": "本周安排", "nodes": [{"text": "按感觉开始"}]}}])
+    assert plan.status_code == 200
+    with pytest.raises(ValueError, match="Production requires"):
         Settings(environment="production")
 
 

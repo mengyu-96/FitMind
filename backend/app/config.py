@@ -16,11 +16,14 @@ class Settings(BaseSettings):
     model_name: str = "deepseek-flash"
     model_api_key: str = ""
     model_timeout_seconds: int = 35
+    wechat_app_id: str = "wx7262dc559800af57"
+    wechat_app_secret: str = ""
 
     @model_validator(mode="after")
     def validate_environment(self):
         if not self.database_url.startswith("postgresql+psycopg://"):
             raise ValueError("This application requires PostgreSQL with psycopg.")
         if self.environment == "production":
-            raise ValueError("G1 foundation is not ready for production authentication/model use.")
+            if not self.wechat_app_id or not self.wechat_app_secret:
+                raise ValueError("Production requires WeChat credentials.")
         return self
