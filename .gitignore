@@ -1,0 +1,22 @@
+# Local environments and caches
+.conda/
+.cache/
+.venv/
+__pycache__/
+*.py[cod]
+.pytest_cache/
+.ruff_cache/
+.mypy_cache/
+*.egg-info/
+.coverage
+htmlcov/
+
+# Local configuration and generated files
+.env
+.env.*
+!.env.example
+logs/
+node_modules/
+dist/
+.DS_Store
+
