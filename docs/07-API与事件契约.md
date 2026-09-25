@@ -1,6 +1,8 @@
 # API与事件契约
 
-版本：v1.2｜日期：2026-09-25｜状态：开放业务契约设计；API尚未上线，固定可信包络，业务payload允许演进
+版本：v1.3｜日期：2026-09-25｜状态：开放业务契约设计；API尚未上线，固定可信包络，业务payload允许演进
+
+> v1.3实施范围：接口目录是跨阶段设计；M0发布子集按29 §7。未发布接口不得出现在可调用能力中，不能因为文档列出就返回伪成功。 具体分期与自主授权以[29](29-微信小程序首版收束与智能体授权.md)为准。
 
 ## 1. 全局约定
 
@@ -232,3 +234,15 @@ semantic_patch的操作信封固定为目标object_ref、op（replace/remove/app
 training.completed/revised/deleted保留为标准适配器事件，与activity.changed共用operation_id和source_activity_id；统计按源活动ID去重并按metric_definition_version判断资格，不能把两种事件相加。补齐字段、重建投影和重复消费不会增加训练场次。消费者按源版本CAS，过期答案或旧议题任务不可覆盖新理解。
 
 主动问题和反馈作为持久化assistant消息，通过现有run消息通道交付；快速回复只是可选action。跨设备回答后同步inquiry版本，撤下过时提示。离线投递记录delivery_id与provider幂等键；投递前再次核查授权、议题、答案、用户偏好与频控。详细竞态、拒答与延期语义以28为准。
+
+## 10. M0接口与工具发布策略
+
+M0优先实现auth/me/consents、conversation/message/run、objects、operations、基本plans、cards、知识/动作引用读取、interaction_preferences、inquiries、mandates、feedback及导出/删除。plan-occurrences完整履约、training-sessions实时开始暂停计时、muscle-state、training-reports任务、reminders/inbox、个人Schema管理和运营Web接口后置；记录主入口为objects。内容发布/撤回仍通过受限内部接口或导入工具完成。
+
+新增`POST /agent-actions/apply`作为apply_changes能力的HTTP适配，输入operation_id、operations、expected_versions、intent_ref/mandate_ref；归属由服务端注入。响应包含executed/pending_confirmation/rejected及每项回执，已授权时一次请求内完成内部验证与提交；需要确认时复用confirmations。校验不通过的原子组不部分落库，用户允许的独立组可明确部分成功。不要求用户或模型先调用三次接口才保存一句话。
+
+`GET /capabilities`附release=M0及实现/授权状态；能力描述可以被模型动态发现，自由组合，实际提交仍重新校验。未来接口未实现返回明确NOT_IMPLEMENTED_IN_RELEASE（501）或不注册路由；权限缺失与能力不存在区分，Agent不能把后者解释成“再给权限即可执行”。所有开放写入包括直接对象入口复用同一效果校验与授权服务。
+
+首版不存在后台提醒投递，manage_inquiry只保存并在下一次前台交互读取。持续委托授予/撤销可通过现有mandates或统一变更入口完成，不因为没有独立管理页面就限制Agent在已授范围内行动。
+
+M0 plans使用稳定node_id与源活动显式关系表示已执行部分，保持一个active主计划及历史版本；不依赖plan-occurrences接口才能保存或调整计划。apply_changes可直接激活/调整经授权计划，仍在事务内核对expected_active_plan_id和相关源版本。撤销通过引用原operation_id创建逆向语义修订，同样验证当前版本与后续依赖，不能无声覆盖后来修改。
