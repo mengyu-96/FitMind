@@ -1,6 +1,6 @@
 # API与事件契约
 
-版本：v1.3｜日期：2026-09-25｜状态：开放业务契约设计；API尚未上线，固定可信包络，业务payload允许演进
+版本：v1.4｜日期：2026-09-25｜状态：开放业务契约设计；API尚未上线，固定可信包络，业务payload允许演进
 
 > v1.3实施范围：接口目录是跨阶段设计；M0发布子集按29 §7。未发布接口不得出现在可调用能力中，不能因为文档列出就返回伪成功。 具体分期与自主授权以[29](29-微信小程序首版收束与智能体授权.md)为准。
 
@@ -233,7 +233,7 @@ semantic_patch的操作信封固定为目标object_ref、op（replace/remove/app
 
 training.completed/revised/deleted保留为标准适配器事件，与activity.changed共用operation_id和source_activity_id；统计按源活动ID去重并按metric_definition_version判断资格，不能把两种事件相加。补齐字段、重建投影和重复消费不会增加训练场次。消费者按源版本CAS，过期答案或旧议题任务不可覆盖新理解。
 
-主动问题和反馈作为持久化assistant消息，通过现有run消息通道交付；快速回复只是可选action。跨设备回答后同步inquiry版本，撤下过时提示。离线投递记录delivery_id与provider幂等键；投递前再次核查授权、议题、答案、用户偏好与频控。详细竞态、拒答与延期语义以28为准。
+当前对话内主动问题和反馈随assistant消息持久化；返回时的候选开场是独立预览，未展开/回答不自动写入聊天或inbox。跨设备回答后同步inquiry版本、撤下过时提示。离线投递当前不实现，未来若实验再核验通道与授权。呈现竞态、拒答与延期以28为准。
 
 ## 10. M0接口与工具发布策略
 
@@ -246,3 +246,13 @@ M0优先实现auth/me/consents、conversation/message/run、objects、operations
 首版不存在后台提醒投递，manage_inquiry只保存并在下一次前台交互读取。持续委托授予/撤销可通过现有mandates或统一变更入口完成，不因为没有独立管理页面就限制Agent在已授范围内行动。
 
 M0 plans使用稳定node_id与源活动显式关系表示已执行部分，保持一个active主计划及历史版本；不依赖plan-occurrences接口才能保存或调整计划。apply_changes可直接激活/调整经授权计划，仍在事务内核对expected_active_plan_id和相关源版本。撤销通过引用原operation_id创建逆向语义修订，同样验证当前版本与后续依赖，不能无声覆盖后来修改。
+
+## 11. 前台续接最小契约（v1.4）
+
+`POST /conversations/{id}/resume`接收稳定client_resume_id、当前page及客户端交互代次；服务端识别visit、读取本人议程/偏好并去重。有现成决定返回200及decision=none/offer；需生成返回202及run_id，经GET /runs恢复；客户端页面不等待该结果才能使用。offer包含engagement_id、inquiry_ref/version、answer_revision、presentation_token及expires_at。当前无AI用途、免开场或无有用议题返回none，不创建新的主动模型任务，也不误报全部功能不可用。
+
+`POST /engagements/{id}/ack`接收presentation_token及action=shown/dismissed/opened；当前用户、展示占位、版本和交互代次由服务端复核，重复动作幂等；过期返回STALE_ENGAGEMENT（409）并由客户端安静丢弃。opened才将对应候选衔接为正常对话；回答仍走已有消息入口，可携engagement_ref关联，一段自然回答可以解决多个议题。
+
+client_resume_id按用户唯一，客户端不凭自填page/visit扩大业务权限。新消息或偏好更改递增交互代次，旧候选不能发布为当前问题；页面隐藏本地立即停止呈现。端间网络延迟无法保证瞬时撤回已显示内容，收到版本失效时撤下/标已更新，不再次推送解释。候选呈现不触发业务计划写入；授权内自主调整仍走独立apply_changes回执。
+
+旧reminder-preferences/reminders/inbox路由为非M0、非默认V1的历史候选协议，当前能力发现不得返回可执行。schedule_followup若保留工具别名，回执明确mode=next_interaction、notification_scheduled=false，不使用含糊“已设置提醒”。
