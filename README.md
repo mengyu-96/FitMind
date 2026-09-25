@@ -34,3 +34,6 @@ AppID 已登记，正式微信登录仍待 AppSecret；知识库专家审校与�
 - [待确认事项与审批单](docs/18-待确认事项与审批单.md)
 
 建议先读29（首版做什么、Agent能做什么）→03（PRD）→25/28（自主执行与主动交流）。22—28保留完整演进设计，按29的适用性矩阵分期，不要求首版全部实现。v1.3按用户方向修订，未宣称新增细则已逐条批准；业务开发仍按C10在文档确认后开始，既有范围确认持续有效。公开发布、真实收费和采购按相应阶段授权执行。
+
+
+Real-environment smoke verification (2026-09-26): local PostgreSQL migration, FastAPI health/auth, invalid WeChat code rejection, authenticated chat and record flows, and DeepSeek tool execution were exercised. Production deployment and real wx.login device flow remain separate release gates.

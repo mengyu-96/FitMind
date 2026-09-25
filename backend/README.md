@@ -59,3 +59,6 @@ $env:CONDA_PKGS_DIRS = 'D:\work\FitMind\.cache\conda-pkgs'
 `verify_environment.py`验证FastAPI请求、Pydantic校验、LangGraph中断/恢复及不同thread的状态分离，并导入数据库/向量/Redis模块。它使用内存检查点和本地测试客户端，不调用外部模型，不证明数据库连接、真实鉴权、跨进程恢复或并发事务已完成。
 
 实际验证结果记录在[环境验证记录](../docs/20-本地环境与验证记录.md)。
+
+
+Real-environment smoke verification (2026-09-26): local PostgreSQL migration, FastAPI health/auth, invalid WeChat code rejection, authenticated chat and record flows, and DeepSeek tool execution were exercised. Production deployment and real wx.login device flow remain separate release gates.
