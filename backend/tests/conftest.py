@@ -24,7 +24,8 @@ def app():
         conn.execute(text(f'CREATE SCHEMA "{schema}"'))
     # Isolated schema per test; never truncate the developer's database.
     scoped_url = url + ("&" if "?" in url else "?") + f"options=-csearch_path%3D{schema}"
-    application = create_app(Settings(database_url=scoped_url, environment="test", dev_login_enabled=True),
+    application = create_app(Settings(database_url=scoped_url, environment="test", dev_login_enabled=True,
+                                      knowledge_admin_token="test-secret"),
                              planner=FakePlanner())
     Base.metadata.create_all(application.state.engine)
     yield application

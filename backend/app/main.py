@@ -23,7 +23,13 @@ from .db import (
     now,
 )
 from .domain import DomainError, apply_changes, fingerprint, owned_object, read_context, snapshot
-from .schemas import ApplyRequest, MessageRequest
+from .schemas import (
+    ApplyRequest,
+    KnowledgeCreateRequest,
+    KnowledgeReviewRequest,
+    KnowledgeRevisionRequest,
+    MessageRequest,
+)
 
 
 def create_app(settings: Settings | None = None, planner=None):
@@ -188,12 +194,11 @@ def create_app(settings: Settings | None = None, planner=None):
             raise DomainError("FORBIDDEN", "Knowledge administration is not available.", 403)
 
     @app.post("/api/v1/admin/knowledge")
-    def create_knowledge(body: dict, request: Request, _=Depends(require_knowledge_admin)):
+    def create_knowledge(body: KnowledgeCreateRequest, request: Request,
+                         _=Depends(require_knowledge_admin)):
         from .knowledge import create_document
         with sessions.begin() as db:
-            doc = create_document(db, slug=body.get("slug", ""), title=body.get("title", ""),
-                                  body=body.get("body", ""), source_name=body.get("source_name", ""),
-                                  source_url=body.get("source_url"))
+            doc = create_document(db, **body.model_dump())
             result = knowledge_snapshot(doc)
         return ok(request, result)
 
@@ -215,7 +220,7 @@ def create_app(settings: Settings | None = None, planner=None):
             return ok(request, {"items": [knowledge_snapshot(doc) for doc in db.scalars(query.limit(200))]})
 
     @app.put("/api/v1/admin/knowledge/{doc_id}")
-    def revise_knowledge(doc_id: UUID, body: dict, request: Request,
+    def revise_knowledge(doc_id: UUID, body: KnowledgeRevisionRequest, request: Request,
                          _=Depends(require_knowledge_admin)):
         from .db import KnowledgeDocument
         from .knowledge import revise_document
@@ -223,14 +228,13 @@ def create_app(settings: Settings | None = None, planner=None):
             doc = db.get(KnowledgeDocument, str(doc_id))
             if doc is None:
                 raise DomainError("NOT_FOUND", "Knowledge document not found.", 404)
-            revise_document(db, doc, expected_version=body.get("expected_version", -1),
-                            title=body.get("title", ""), body=body.get("body", ""),
-                            source_name=body.get("source_name", ""), source_url=body.get("source_url"))
+            values = body.model_dump()
+            revise_document(db, doc, **values)
             result = knowledge_snapshot(doc)
         return ok(request, result)
 
     @app.post("/api/v1/admin/knowledge/{doc_id}/review")
-    def review_knowledge(doc_id: UUID, body: dict, request: Request,
+    def review_knowledge(doc_id: UUID, body: KnowledgeReviewRequest, request: Request,
                          _=Depends(require_knowledge_admin)):
         from .db import KnowledgeDocument
         from .knowledge import review_document
@@ -238,8 +242,7 @@ def create_app(settings: Settings | None = None, planner=None):
             doc = db.get(KnowledgeDocument, str(doc_id))
             if doc is None:
                 raise DomainError("NOT_FOUND", "Knowledge document not found.", 404)
-            review_document(db, doc, decision=body.get("decision", ""),
-                            reviewer=body.get("reviewer", ""))
+            review_document(db, doc, **body.model_dump())
             result = knowledge_snapshot(doc)
         return ok(request, result)
 

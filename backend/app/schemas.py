@@ -53,3 +53,24 @@ class MessageRequest(StrictModel):
         if not self.text.strip():
             raise ValueError("Text cannot be blank.")
         return self
+
+
+class KnowledgeCreateRequest(StrictModel):
+    slug: str = Field(min_length=2, max_length=200)
+    title: str = Field(min_length=1, max_length=240)
+    body: str = Field(min_length=1, max_length=12000)
+    source_name: str = Field(min_length=1, max_length=300)
+    source_url: str | None = Field(default=None, max_length=2000)
+
+
+class KnowledgeRevisionRequest(StrictModel):
+    expected_version: int = Field(ge=1)
+    title: str = Field(min_length=1, max_length=240)
+    body: str = Field(min_length=1, max_length=12000)
+    source_name: str = Field(min_length=1, max_length=300)
+    source_url: str | None = Field(default=None, max_length=2000)
+
+
+class KnowledgeReviewRequest(StrictModel):
+    decision: Literal["approve", "reject", "withdraw"]
+    reviewer: str = Field(min_length=1, max_length=200)
