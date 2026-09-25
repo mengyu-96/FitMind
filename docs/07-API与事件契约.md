@@ -1,6 +1,6 @@
 # API与事件契约
 
-版本：v1.1｜日期：2026-09-25｜状态：功能业务细化同步；API尚未上线，字段变更须在首次实现前冻结
+版本：v1.2｜日期：2026-09-25｜状态：开放业务契约设计；API尚未上线，固定可信包络，业务payload允许演进
 
 ## 1. 全局约定
 
@@ -32,11 +32,11 @@ HTTP：400语法错误，401未认证，403权限不足，404资源不存在/非
 | GET/PATCH /cards/{id} | PATCH:修改字段,expected_version | 卡片最新版本 |
 | DELETE /cards/{id} | expected_version | 204；只删除卡片 |
 | GET /cards/{id}/versions | cursor | 本人卡片历史 |
-| POST /plans/generate | confirmed_profile_version,constraints | 202:run_id |
+| POST /plans/generate | objective,context_refs可选,constraints可选 | 202:run_id；按本次任务取证，不要求全画像完成 |
 | GET /plans | status,cursor | 本人计划列表；包括active和可继续的draft |
 | GET /plans/{id} | 无 | 计划草稿或已生效版本 |
 | PATCH /plans/{id} | content,expected_version | 草稿可修改；active计划修改生成新draft，原计划继续有效 |
-| POST /plans/{id}/accept | expected_version,expected_active_plan_id（可null） | 生效计划；画像/训练/内容版本过期409 |
+| POST /plans/{id}/accept | expected_version,expected_active_plan_id（可null）,authorization_ref | 生效计划；仅相关依赖变化需复核，授权可来自当前明确意图或有效委托 |
 | POST /plans/{id}/archive | expected_version | 归档；保留已开始/历史训练和已到期履约 |
 | POST /plans/{id}/revalidate | expected_version,acknowledged_changes | needs_review可复核，返回review_status；blocked不可用此接口强行解除 |
 | GET /plan-occurrences | from,to,plan_id可空,cursor | 安排及履约，跨版本复用项去重 |
@@ -49,7 +49,7 @@ HTTP：400语法错误，401未认证，403权限不足，404资源不存在/非
 | DELETE /training-sessions/{id}/sets/{set_id} | expected_version | 未结束会话删除组，返回新会话version；已结束走修订 |
 | POST /training-sessions/retroactive | client_session_id,time_precision,local_date,timezone,started_at/ended_at可空,entries完整快照,occurrence_id可空 | 201:已完成会话，整次补录原子提交，单独幂等 |
 | POST /training-sessions/{id}/complete | expected_version,ended_at,feedback可空 | 会话及projection_status |
-| POST /training-sessions/{id}/revisions | expected_version,reason,time_precision,local_date,timezone,started_at/ended_at可空,corrected_entries | 完整替代事实快照（时间及entries含sets），修订及重算状态 |
+| POST /training-sessions/{id}/revisions | expected_version,reason,semantic_patch；兼容精确编辑器的corrected_entries | 服务端构造完整源修订；两种输入互斥，返回修订及重算状态 |
 | DELETE /training-sessions/{id} | expected_version | 202:deletion_job_id；派生数据重算 |
 | GET /training-sessions | from,to,exercise_id,cursor | 本人历史；单次范围≤366天 |
 | GET /muscle-states | 无 | 当前估算快照，响应包含as_of；历史用趋势接口 |
@@ -129,15 +129,15 @@ run.status枚举queued/running/awaiting_confirmation/succeeded/failed/cancelled�
 
 ## 4. 训练记录与单位
 
-set必填entry_id、ordinal、set_kind、measurement_type、load_mode、completed；exercise_id归属entry，不能从传入组字段另改动作。set_kind枚举work/warmup，measurement_type=reps时reps为正整数且duration_seconds=null，duration时duration_seconds>0且reps=null。未完成组可为空；完成时必须满足计量规则。load_mode枚举barbell_total/dumbbell_each/bodyweight/machine_stack；weight_kg对自重可null，其余≥0，dumbbell_each必须implement_count为1或2。器械配重不跨机型比较。RPE可null，不强迫填写。expected_version指训练会话版本，单组写入也更新会话版本。
+以下仅为标准set投影：必填entry_id、ordinal、set_kind、measurement_type、completed；exercise_id归属entry，不能从传入组字段另改动作。set_kind为work/warmup，measurement_type=reps时reps为正整数且duration_seconds=null，duration时duration_seconds>0且reps=null。未完成组计量值可空；完成时满足相应计量规则。load_mode可为barbell_total/dumbbell_each/bodyweight/machine_stack或null（未知）；weight_kg任何模式均允许null，已知值须≥0。dumbbell_each的implement_count已知时为1或2，未知可null但不能用于负重比较。器械配重不跨机型比较。RPE可null。expected_version指会话投影版本，写入同时校验绑定源版本并更新同一源活动；投影条件不足仍可走开放对象保存原述。
 
 RPE有值时为1—10整数，与A0分段一致。PATCH取消含已完成组的会话必须带discard_confirmed=true，表明已展示放弃影响；Agent途径还需绑定确认票据，不能由模型伪造用户确认。被跳过entry不允许隐含已有完成组，冲突时要求先恢复条目或明确修改组事实。
 
-completed会话的修改只能使用revisions，corrected_entries为动作条目及其sets的完整替代快照（不是模糊增量），同时明确时间精度与时间字段；服务端校验既有条目/组ID归属、新ID不冲突。移除所有完成组须改为整会话删除。完成响应包含completion_kind、training_revision和projection_status；已完成后换新键重试complete返回409 ALREADY_COMPLETED及原结果引用。
+completed会话修改必须生成修订，可使用revisions语义patch或开放change-set；兼容输入corrected_entries时它是完整替代快照，与semantic_patch互斥。服务端校验既有条目/组ID归属、新ID不冲突及时间证据。移除所有有效组时保留源活动并令标准投影validity=ineligible，不能强迫删除。完成响应包含completion_kind、training_revision和消费者projection_status；已完成后换新键重试complete返回409 ALREADY_COMPLETED及原结果引用。
 
 补录time_precision=date时local_date/timezone必填，started_at/ended_at为空，响应带derived_effective_at和估算标记；exact时完成时间范围必填且不得在未来。算法与发生日规则以23 BR-08为准。POST /training-sessions/retroactive是固定路由，应先于/{id}匹配；分页/详情不能让字符串retroactive进入UUID详情路由。
 
-原v1.0的set.exercise_id和corrected_sets在未实施前由上述entry结构取代。本次是未上线设计的显式修订，不宣称对旧客户端兼容；首次生成OpenAPI时以v1.1为准。
+原v1.0的set.exercise_id和corrected_sets在未实施前由entry结构取代；v1.2再增加开放对象、局部语义修订及按消费者判断的资格。本次为未上线设计的显式修订，不宣称对旧客户端兼容；首次生成OpenAPI以v1.2为准。
 
 ## 5. 事件规范
 
@@ -164,6 +164,8 @@ WebSocket路径/api/v1/realtime，使用短时票据；应用帧包含seq,type,r
 
 兼容增加可选字段不升主版本；删除字段、改变语义或枚举需新版本及迁移窗口。实施时将本文转为OpenAPI/JSON Schema并锁定样例，前后端共享生成类型；在批准前不生成服务代码。
 
+固定包络与系统控制字段用严格Schema；业务payload不是全局固定字段白名单。个人schema可选且按用户/版本解释，新增kind无需修改全局枚举。本文v1.2修订的是尚未上线的设计基线，不代表可以对已发布接口静默破坏兼容。
+
 ## 7. 业务错误与读取结构
 
 稳定错误码与用户恢复路径见24第6节，并追加ALREADY_COMPLETED（409，引用现存完成结果）。details只返回当前用户可见对象、current_version、rule_id和allowed_actions；错误码由服务端决定，Agent不能伪造HTTP成功。
@@ -171,3 +173,62 @@ WebSocket路径/api/v1/realtime，使用短时票据；应用帧包含seq,type,r
 GET /muscle-states的data包含projection_status、source_revision、as_of、algorithm_version、mapping_version、coverage及muscles；同一图快照一致。projection_status为ready/updating/failed，旧快照可返回但明确stale，不把重算失败混同记录保存失败。报告任务完成后GET /jobs返回report_id，不返回导出下载链接；export/deletion/report用type区分。
 
 DELETE路径版本置于If-Match头（数值为expected_version），避免依赖代理可能丢弃的DELETE body；目录表的expected_version遵循此约定。PATCH/POST/PUT保持JSON字段。GET游标绑定用户、过滤条件和排序字段，换过滤条件须重新分页。
+
+## 8. 柔性对象与可组合能力接口（v1.2）
+
+| 方法与路径 | 输入与语义 | 响应/限制 |
+|---|---|---|
+| GET /capabilities | 当前任务上下文引用可选 | 可用工具、最小输入、效果类别、权限与消费者条件；服务端执行时重新核查 |
+| POST /objects | kind,payload,source_refs可选,schema_ref可选 | 201：正式保存的对象与消费者资格；不因无组数/重量返回422 |
+| GET /objects、/objects/{id} | 本人范围、kind/关系/时间过滤、游标 | 源对象及版本，未知时间单独分组，不虚构排序日期 |
+| PATCH /objects/{id} | expected_version,semantic_patch,operation_id | 通过统一变更服务更新；系统属性不可在payload中覆盖 |
+| POST /change-sets | intent_ref,operations,base_versions,operation_id | 变更提案及真实效果摘要；模型不能自授权限 |
+| POST /change-sets/{id}/validate | expected_version | 校验回执、影响、待补证据及可行部分；未写业务事实 |
+| POST /change-sets/{id}/commit | expected_version,validation_ref,authorization_ref | 提交结果；授权不足才返回需要确认，验证失效409 |
+| GET /operations/{id} | 稳定operation_id | 已提交/待执行/失败及实际成功对象引用，跨run可恢复 |
+| POST /objects/{id}/projections | consumer,expected_version | 200即时或202异步；不新建第二场活动 |
+| GET/POST /personal-schemas | 本人类型及可选属性定义 | 版本化个人语义；不含权限字段，默认不强制全量必填 |
+| POST /views/compose | object_refs,display_intent或注册组件树 | 受控渲染视图；未知组件降级保留源内容 |
+| GET/POST /mandates | POST：用户明确指令来源、scope/actions/effect_limits/expiry | 用户可见委托；服务端验证授权证据，模型自述“用户同意”无效 |
+| POST /mandates/{id}/revoke | expected_version | 立即阻止后续提交；不回滚已执行操作 |
+| GET/POST /inquiries | POST：topic,purpose,evidence_refs,decision_impact | 本人议题及状态；可主动创建，不能自动标记用户已答 |
+| POST /inquiries/{id}/responses | text或message_ref,expected_version,disposition可选 | 自然回复/不知道/拒答/延期；返回相关事实与议题更新 |
+| POST /coaching-feedback | observation_refs,interpretation,proposed_next_step可选 | 区分观察与假设；发送当前会话反馈，离线投递另走授权调度 |
+| GET/PATCH /interaction-preferences | 主动程度、免问主题、期限、expected_version | 与reminder-preferences独立；自然语言设置走同一服务 |
+
+所有新私有写接口适用鉴权、用途、Idempotency-Key和版本规则。source_refs、intent_ref、authorization_ref必须可验证，不能通过传入他人ID或伪造证据绕过授权。更新对象与change-set两种入口共享同一提交器。精确训练/画像接口是同一源对象的适配器，并非Agent必须填写的表单。
+
+semantic_patch的操作信封固定为目标object_ref、op（replace/remove/append/link）、path、value或related_ref、evidence_refs；业务path允许个人新属性。每种op按能力声明解释，数组修改用稳定子项ID而非脆弱位置索引。服务端拒绝修改owner/授权/系统版本、跨用户引用、原型污染键及超资源预算请求。首次创建可由服务端将Idempotency-Key绑定生成operation_id并返回；Agent网关提前生成稳定operation_id，重试必须复用，不能在新run重新建同一对象。
+
+卡片示例中的source_ref=null只表示owned创建请求尚未分配源对象；成功响应必须返回服务端建立的源对象引用。普通用户可编辑新业务属性，系统身份与授权字段仍只通过专用服务维护。
+
+开放记录成功示意（服务端生成ID/版本/资格；请求只需真实内容）：
+
+```json
+{
+  "data": {
+    "object_id": "activity-example",
+    "version": 1,
+    "saved": true,
+    "kind": "activity_report",
+    "payload": {"description": "今天练腿，很累", "activity_status": "finished"},
+    "eligibility": {
+      "history": "eligible",
+      "a0": {"status": "ineligible", "reasons": ["NO_MAPPED_WORK_SETS"]},
+      "e1rm": {"status": "ineligible", "reasons": ["NO_COMPARABLE_LOAD"]}
+    },
+    "suggested_followup": null
+  },
+  "request_id": "request-example"
+}
+```
+
+保存成功不以用户回答后续问题为条件。`ACTION_EVIDENCE_INSUFFICIENT`仅阻止当前缺证据的执行动作，返回action、needed_evidence、allowed_actions；不使用PROFILE_INCOMPLETE作为全局门槛。建议性信息缺口放在成功响应中。标准complete的NO_COMPLETED_SETS不适用于开放源记录。
+
+## 9. 开放事件与主动交互恢复
+
+新增`object.created/revised/deleted`（object_id、version、kind）、`activity.changed`（activity_id、training_revision、activity_status）、`projection.updated`（object_id、consumer、source_version、projection_version）、`inquiry.updated/resolved`（inquiry_id、version、answer_revision）、`mandate.revoked`（mandate_id、version）。事件只携带引用与必要路由信息，不广播健康正文。
+
+training.completed/revised/deleted保留为标准适配器事件，与activity.changed共用operation_id和source_activity_id；统计按源活动ID去重并按metric_definition_version判断资格，不能把两种事件相加。补齐字段、重建投影和重复消费不会增加训练场次。消费者按源版本CAS，过期答案或旧议题任务不可覆盖新理解。
+
+主动问题和反馈作为持久化assistant消息，通过现有run消息通道交付；快速回复只是可选action。跨设备回答后同步inquiry版本，撤下过时提示。离线投递记录delivery_id与provider幂等键；投递前再次核查授权、议题、答案、用户偏好与频控。详细竞态、拒答与延期语义以28为准。

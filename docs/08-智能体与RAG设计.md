@@ -1,12 +1,12 @@
 # 智能体与RAG设计
 
-版本：v1.1｜日期：2026-09-25｜状态：功能业务细化同步
+版本：v1.2｜日期：2026-09-25｜状态：开放对象、组合能力与主动问答同步
 
 ## 1. 编排流程
 
 v1.0优化采用LangGraph显式状态图、主教练入口及专项任务子图，完整状态、恢复和预算契约见[19-Agent架构优化设计](19-Agent架构优化设计.md)。下述流程保留为业务逻辑概览，不再等同一次不可恢复的线性函数调用。
 
-输入校验 → 风险与意图分流 → 获取已确认画像/近期训练/相关记忆 → 专业问题检索知识 → 模型生成结构化候选动作 → 工具网关校验 → 必要时用户确认 → 执行领域事务 → 基于真实结果生成回复 → 校验引用与输出 → 保存简短运行摘要。
+输入与用途校验→理解当前目标/证据→Agent选择读取、保存、检索、草拟、反馈或提问→逐动作验证效果→已有意图/委托足够则执行，否则针对性确认→真实回执回复→吸收回应并更新关注议程。流程自由组合，不必每次先完整建档。
 
 Agent负责自然语言理解、对话策略、资料组织与建议，不决定认证、医学结论、价格、支付结果或数据库约束。权限规则在模型外执行。原文thinking字段保留为null，不要求生成、存储或展示内部思维过程；审计使用tool结果、证据ID和简短decision_summary。
 
@@ -17,19 +17,21 @@ Agent负责自然语言理解、对话策略、资料组织与建议，不决定
 | 读取 | get_user_data/get_training_history/get_card/list_cards/get_notes | 限本人；时间、条数有上限 |
 | 检索 | search_exercise/search_equipment/search_knowledge | 只检索有效审核内容，top_k≤10 |
 | 卡片 | create_card/update_card/move_card/show_card/hide_card/reorder_cards | 内容schema、版本、归属、渲染白名单 |
-| 事实 | save_user_data/save_training_track/save_note | 用户明确陈述才可记为事实；模糊值澄清 |
-| 计划 | create_plan/update_plan | 只能产生草稿；用户采纳后生效 |
+| 事实 | save_user_data/save_training_track/save_note | 原述不完整也可正式保存；不擅自补充未知事实 |
+| 计划 | create_plan/update_plan | 草拟自由；执行需明确一次意图或有效有限委托 |
 | 计算 | calculate_muscle_state | 调度确定性计算，不接受模型自填结果 |
 | 提问 | ask_user | 每轮建议≤2问，允许跳过 |
 | 高影响 | delete_card/merge_cards、历史删除/修订 | 明确删除或修改指令、必要时预览确认；合并P1 |
+| 开放内核 | record_observation/propose_changes/validate_changes/commit_changes/compose_view | 灵活对象信封，服务端实际效果校验，见25 |
+| 主动认知 | manage_inquiry/select_next_interaction/record_feedback/resolve_inquiry | 相关观察、主动态度、自由回答吸收和去重，见28 |
 
-工具调用的业务决策以23 BR-01—BR-16为准：reference卡不能直写源事实；明确补录走原子RecordRetroactive；active计划修改仅建draft；过期输入、撤权与内容撤回需重新校验。RPE字段首版为1—10整数或null。图步骤不能把“用户确认缺失字段”误当“采纳整份计划”。
+原工具为领域适配器，首选25的开放对象/变化集能力。reference卡不直写投影；原子补录只适配能结构化部分。原始RPE/感受可自由保存，A0适用整数规则不反向限制记录。用户回答信息问题不是授权整份计划。业务规则BR、自由度AU、主动认知PI共同适用。
 
-所有工具带run_id、tool_call_id、actor上下文、参数schema、幂等规则。user_id由网关注入。save_user_data写未确认偏好时标记candidate；伤病推断不能升级为诊断事实。工具报错应如实回应，禁止说“已保存”而数据库失败。
+工具带run_id、operation_id、actor、效果声明、信封schema及幂等规则，owner由服务端注入。模型候选与用户明确自述分开；源已保存但投影失败要分别报告，不说全部失败或假装已计算。自由payload不能扩展权限。
 
 ## 3. 记忆
 
-短期上下文建议最近20条加摘要，受token预算约束；长期画像和训练从结构化事实读取；语义记忆仅用于检索线索。每条记忆保存source_ref、更新时间、确认状态、置信度和有效期。当前用户确认信息优先于旧摘要；冲突先澄清。
+短期上下文按相关性与预算组装，最近20条只是起点；长期从开放源声明及有版本投影读取，语义记忆仅作线索。每条记忆含来源、归因和有效范围；已回答/拒绝主题、交流偏好及关注议程也是上下文。明示纠正优先于旧假设，主动发现矛盾并验证，不能把个人schema之外的词丢弃。
 
 查询向量前设置用户过滤，返回后再检查来源仍有效，避免用户数据串读和删除后复现。健康与训练原文不混入公共知识索引。周摘要引用训练revision，历史修订触发失效。对话摘要不能自行创造训练完成事实。
 
