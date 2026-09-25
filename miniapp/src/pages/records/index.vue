@@ -14,6 +14,10 @@ type Change = { action: string; kind?: string; payload?: Record<string, unknown>
 type Pending = { operation_id: string; operations: Change[] }
 const pending = ref<Pending | null>(null)
 const hasMore = ref(false)
+const plans = ref<FitnessObject[]>([])
+const planDraft = ref('')
+const planTitle = ref('')
+const editingPlan = ref<FitnessObject | null>(null)
 
 async function load(append = false) {
   if (!session.loggedIn) return
@@ -21,13 +25,14 @@ async function load(append = false) {
   try {
     const result = await request<{ items: FitnessObject[] }>(`/api/v1/objects?offset=${append ? items.value.length : 0}`)
     items.value = append ? [...items.value, ...result.items] : result.items
+    if (!append) plans.value = result.items.filter(item => item.kind === 'plan')
     hasMore.value = result.items.length === 50
   } catch (e) { error.value = errorMessage(e) }
 }
 onShow(() => { if (!busy.value) load() })
 
 async function apply(operations: Change[]) {
-  if (busy.value) return
+  if (busy.value) return false
   busy.value = true; error.value = ''
   try {
     if (!pending.value) {
@@ -40,6 +45,7 @@ async function apply(operations: Change[]) {
     draft.value = ''; editing.value = null
     await load()
     uni.showToast({ title: '已保存', icon: 'success' })
+    return true
   } catch (e) {
     error.value = errorMessage(e)
     if (e instanceof ApiError && ['VERSION_CONFLICT', 'INVALID_INPUT', 'NOT_FOUND'].includes(e.code)) {
@@ -49,6 +55,7 @@ async function apply(operations: Change[]) {
       editing.value = null
       await load()
     }
+    return false
   } finally { busy.value = false }
 }
 function save() {
@@ -68,10 +75,33 @@ function extra(item: FitnessObject) {
   return Object.entries(item.payload).filter(([key]) => !['text', 'activity_status'].includes(key))
     .map(([key, value]) => `${key}：${typeof value === 'object' ? JSON.stringify(value) : value}`).join('\n')
 }
+function planNodes(item: FitnessObject): Array<{ id: string; text: string; status: string }> {
+  return Array.isArray(item.payload.nodes) ? item.payload.nodes as Array<{ id: string; text: string; status: string }> : []
+}
 function undo(item: FitnessObject) {
   uni.showModal({ title: '恢复上一版本', content: '会生成一个新修订并保留版本历史。', success(result) {
     if (result.confirm) apply([{ action: 'undo', object_id: item.id, expected_version: item.version, restore_version: item.version - 1 }])
   } })
+}
+function editPlan(item: FitnessObject) {
+  editingPlan.value = item
+  planTitle.value = String(item.payload.title || '')
+  planDraft.value = String(item.payload.text || '')
+}
+async function savePlan() {
+  const nodes = planDraft.value.split(/\n+/).map(text => text.trim()).filter(Boolean)
+    .map((text, index) => ({ id: planNodes(editingPlan.value || plans.value[0] || { payload: {} } as FitnessObject)[index]?.id || operationId(),
+      text, status: 'unstarted' }))
+  if (!nodes.length) { error.value = '写下一个计划方向或行动，再保存。'; return }
+  const targetPlan = editingPlan.value || plans.value[0] || null
+  const payload = { ...(targetPlan?.payload || {}), title: planTitle.value.trim() || '我的训练计划',
+    text: planDraft.value.trim(), nodes }
+  const change: Change = targetPlan
+    ? { action: 'replace', object_id: targetPlan.id, expected_version: targetPlan.version, payload }
+    : { action: 'create', kind: 'plan', payload }
+  if (await apply([change])) {
+    editingPlan.value = null; planTitle.value = ''; planDraft.value = ''
+  }
 }
 </script>
 
@@ -91,7 +121,22 @@ function undo(item: FitnessObject) {
           <button class="primary" :loading="busy" :disabled="busy || (!draft.trim() && !pending)" @tap="save">{{ pending ? '重试原提交' : '保存记录' }}</button>
         </view>
       </view>
-      <view class="card"><view class="label">计划</view><view class="muted">计划功能正在开发。现在可以先记录真实训练和想法。</view></view>
+      <view class="card">
+        <view class="label">{{ editingPlan || plans.length ? '调整当前计划 · v' + (editingPlan || plans[0]).version : '把想法整理成计划' }}</view>
+        <input v-model="planTitle" :disabled="busy" maxlength="120" placeholder="计划名称（可选）" />
+        <textarea v-model="planDraft" :disabled="busy" maxlength="8000" placeholder="写下目标或安排。可以分行列出行动，不需要填固定表格。" />
+        <view class="muted">保存为可编辑的计划草案；系统不会把计划内容当作已完成训练。</view>
+        <view class="row"><button class="primary" :disabled="busy || !planDraft.trim()" :loading="busy" @tap="savePlan">{{ editingPlan ? '保存调整' : '保存计划' }}</button></view>
+      </view>
+      <view v-for="plan in plans" :key="plan.id" class="card">
+        <view class="label">计划 · v{{ plan.version }}</view>
+        <view class="body">{{ plan.payload.title || '训练计划' }}</view>
+        <view class="muted" style="margin-top: 12rpx">{{ plan.payload.text || '' }}</view>
+        <view v-for="(node, index) in planNodes(plan)" :key="node.id" class="row">
+          <text class="tag">{{ index + 1 }}</text><text class="body">{{ node.text }}</text><text class="muted">尚未记录完成</text>
+        </view>
+        <button class="secondary small" style="margin-top: 18rpx" :disabled="busy || !!pending" @tap="editPlan(plan)">编辑计划</button>
+      </view>
       <view class="subtitle" style="margin-top: 32rpx">已保存的内容</view>
       <view v-if="!items.length" class="empty">这里还没有记录。<br />从一小段经历开始就好。</view>
       <view v-for="item in items" :key="item.id" class="card">

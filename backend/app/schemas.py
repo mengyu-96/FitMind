@@ -46,7 +46,7 @@ class ApplyRequest(StrictModel):
 class MessageRequest(StrictModel):
     operation_id: UUID
     text: str = Field(min_length=1, max_length=8000)
-    intent: Literal["chat", "record"] = "chat"
+    intent: Literal["chat", "record", "task"] = "chat"
 
     @model_validator(mode="after")
     def nonempty(self):

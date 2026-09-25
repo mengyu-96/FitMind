@@ -7,7 +7,7 @@ from sqlalchemy import func, select
 
 from app.agent import ToolGateway
 from app.config import Settings
-from app.db import FitnessObject, ObjectRevision, Outbox, Receipt
+from app.db import FitnessObject, ObjectRevision, Outbox, Receipt, User
 from app.domain import DomainError
 
 
@@ -118,8 +118,12 @@ def test_agent_tool_order_and_authority(client, auth, app):
             names = ["read_context", "apply_changes", "calculate_summary", "apply_changes"]
             if len(responses) == len(names):
                 return {"role": "assistant", "content": "已记录。"}
+            name = names[len(responses)]
+            arguments = "{}"
+            if name == "apply_changes":
+                arguments = '{"operations":[{"action":"create","kind":"activity","payload":{"text":"模型改写的内容","activity_status":"finished","duration_minutes":90}}]}'
             return {"role": "assistant", "tool_calls": [{"id": str(uuid4()), "type": "function",
-                     "function": {"name": names[len(responses)], "arguments": "{}"}}]}
+                     "function": {"name": name, "arguments": arguments}}]}
     app.state.planner = ToolPlanner()
     conversation = client.post("/api/v1/conversations", headers=auth).json()["data"]["id"]
     op = str(uuid4())
@@ -128,10 +132,40 @@ def test_agent_tool_order_and_authority(client, auth, app):
                          json={"operation_id": op, "text": "今天爬山", "intent": "record"})
     assert result.status_code == 200
     assert len(result.json()["data"]["receipts"]) == 1
+    assert result.json()["data"]["receipts"][0]["objects"][0]["payload"] == {
+        "text": "今天爬山", "activity_status": "reported",
+    }
     assert len(client.get("/api/v1/objects", headers=auth).json()["data"]["items"]) == 1
     gateway = ToolGateway(app.state.sessions, "unused", str(uuid4()), "测试", "chat")
     with pytest.raises(DomainError, match="当前任务没有此能力"):
         gateway.invoke("apply_changes", {})
+
+
+def test_agent_current_task_can_create_flexible_plan_once(client, auth, app):
+    class PlanPlanner:
+        def complete(self, messages, tools):
+            calls = [message for message in messages if message["role"] == "tool"]
+            if not calls:
+                return {"role": "assistant", "tool_calls": [{"id": str(uuid4()), "type": "function",
+                    "function": {"name": "apply_changes", "arguments":
+                        '{"operations":[{"action":"create","kind":"plan","payload":'
+                        '{"title":"慢慢建立习惯","intent":"每次先决定","custom_preferences":{"无固定日期":true},'
+                        '"nodes":[{"id":"stable-a","text":"选择今天舒服的活动","status":"unstarted"}]}}]}'}}]}
+            return {"role": "assistant", "content": "已整理一份弹性草案。"}
+    app.state.planner = PlanPlanner()
+    conversation = client.post("/api/v1/conversations", headers=auth).json()["data"]["id"]
+    op = str(uuid4())
+    response = client.post(f"/api/v1/conversations/{conversation}/messages",
+        headers={**auth, "Idempotency-Key": op}, json={"operation_id": op,
+        "text": "帮我整理一份不限定星期的训练安排", "intent": "task"})
+    assert response.status_code == 200
+    receipt = response.json()["data"]["receipts"][0]
+    assert receipt["objects"][0]["payload"]["custom_preferences"] == {"无固定日期": True}
+    assert receipt["objects"][0]["source"] == "task_derived"
+    assert response.json()["data"]["status"] == "completed"
+    # One current plan is maintained as a business invariant.
+    second = submit(client, auth, [{"action": "create", "kind": "plan", "payload": {"text": "另一份"}}])
+    assert second.status_code == 409
 
 
 def test_envelope_and_release_guards(client, auth):
@@ -150,3 +184,21 @@ def test_return_does_not_create_messages(client, auth):
     for _ in range(3):
         assert client.get(f"/api/v1/conversations/{conversation}/messages", headers=auth).json()["data"]["items"] == []
     assert client.get("/api/v1/operations", headers=auth).json()["data"]["items"] == []
+
+
+def test_export_and_delete_are_authenticated_and_isolated(client, auth, app):
+    saved = submit(client, auth, [create()]).json()["data"]["objects"][0]
+    other = client.post("/api/v1/auth/dev-session").json()["data"]
+    other_auth = {"Authorization": "Bearer " + other["access_token"]}
+    exported = client.get("/api/v1/me/export", headers=auth).json()["data"]
+    assert exported["format"] == "fitmind-export-v1"
+    assert exported["objects"][0]["id"] == saved["id"]
+    assert client.get("/api/v1/me/export", headers=other_auth).json()["data"]["objects"] == []
+    assert client.delete("/api/v1/me?confirmation=no", headers=auth).status_code == 422
+    deleted = client.delete("/api/v1/me?confirmation=" + __import__("urllib.parse").parse.quote(
+        "永久删除我的FitMind数据"), headers=auth)
+    assert deleted.status_code == 200 and deleted.json()["data"]["deleted"] is True
+    assert client.get("/api/v1/objects", headers=auth).status_code == 401
+    assert client.get("/api/v1/objects", headers=other_auth).json()["data"]["items"] == []
+    with app.state.sessions() as db:
+        assert db.get(User, other["user_id"]) is not None

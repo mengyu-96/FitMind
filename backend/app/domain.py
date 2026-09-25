@@ -55,12 +55,13 @@ def apply_changes(db: Session, user_id: str, body: ApplyRequest, *, authority: s
     Authority is injected by the trusted route/tool gateway, never a model argument.
     G1 only enables explicit user editing and the explicit save-record task.
     """
-    if authority not in {"direct_user", "record_task"}:
+    if authority not in {"direct_user", "record_task", "current_task"}:
         raise DomainError("AUTHORITY_REQUIRED", "当前任务尚未授权这项修改。", 403)
-    if authority == "record_task" and any(
-        op.action != "create" or op.kind != "activity" for op in body.operations
-    ):
+    if authority == "record_task" and any(op.action != "create" or op.kind != "activity"
+                                          for op in body.operations):
         raise DomainError("OUTSIDE_TASK", "本轮仅授权保存记录。", 403)
+    if authority == "current_task" and any(op.kind == "mandate" for op in body.operations):
+        raise DomainError("OUTSIDE_TASK", "持续自主委托尚未开放。", 403)
     user = lock_user(db, user_id)
     operation_id = str(body.operation_id)
     digest = fingerprint({"body": body.model_dump(mode="json"), "authority": authority})
@@ -74,13 +75,24 @@ def apply_changes(db: Session, user_id: str, body: ApplyRequest, *, authority: s
     seen = set()
     for change in body.operations:
         if change.action == "create":
+            if authority == "current_task" and change.kind not in {"plan", "profile", "activity"}:
+                raise DomainError("OUTSIDE_TASK", "当前任务不能创建这类对象。", 403)
+            if change.kind == "plan" and db.scalar(select(FitnessObject.id).where(
+                FitnessObject.user_id == user_id, FitnessObject.kind == "plan",
+                FitnessObject.lifecycle == "active",
+            ).limit(1)):
+                raise DomainError("ACTIVE_PLAN_EXISTS", "已有当前主计划，请在原计划上调整。")
             obj = FitnessObject(
                 id=uid(), user_id=user_id, kind=change.kind, payload=deepcopy(change.payload),
-                version=1, lifecycle="active", source="user_report", purpose="personal_coaching",
+                version=1, lifecycle="active",
+                source="task_derived" if authority == "current_task" else "user_report",
+                purpose="personal_coaching",
             )
             db.add(obj)
         else:
             obj = owned_object(db, user_id, str(change.object_id))
+            if authority == "current_task" and obj.kind not in {"plan", "profile", "activity"}:
+                raise DomainError("OUTSIDE_TASK", "当前任务不能修改这类对象。", 403)
             if obj.id in seen:
                 raise DomainError("DUPLICATE_TARGET", "一次原子修改不能重复指定同一对象。", 422)
             if obj.version != change.expected_version:
@@ -103,7 +115,8 @@ def apply_changes(db: Session, user_id: str, body: ApplyRequest, *, authority: s
         db.add(ObjectRevision(
             object_id=obj.id, user_id=user_id, version=obj.version,
             snapshot=value, operation_id=operation_id,
-            evidence={"type": "explicit_user_input", "authority": authority},
+            evidence={"type": "explicit_task_instruction" if authority == "current_task"
+                      else "explicit_user_input", "authority": authority},
         ))
         changed.append(value)
         activity_changed |= obj.kind == "activity"

@@ -9,7 +9,7 @@ const draft = ref('')
 const turns = ref<Turn[]>([])
 const busy = ref(false)
 const error = ref('')
-type Pending = { operation_id: string; text: string; intent: 'chat' | 'record' }
+type Pending = { operation_id: string; text: string; intent: 'chat' | 'record' | 'task' }
 const pending = ref<Pending | null>(null)
 let conversationId = ''
 
@@ -28,7 +28,7 @@ async function load() {
 }
 onShow(load) // Reading history never generates a greeting or starts a model run.
 
-async function send(intent: 'chat' | 'record') {
+async function send(intent: 'chat' | 'record' | 'task') {
   if (busy.value || (!draft.value.trim() && !pending.value)) return
   busy.value = true
   error.value = ''
@@ -83,6 +83,7 @@ function goToMe() { uni.switchTab({ url: '/pages/me/index' }) }
         <view v-if="pending" class="row"><button class="primary" :disabled="busy" :loading="busy" @tap="send(pending.intent)">重试原提交</button></view>
         <view v-else class="row">
           <button class="secondary" :disabled="busy || !draft.trim()" @tap="send('record')">发送并记录</button>
+          <button class="secondary" :disabled="busy || !draft.trim()" @tap="send('task')">交给教练处理</button>
           <button class="primary" :disabled="busy || !draft.trim()" :loading="busy" @tap="send('chat')">发送</button>
         </view>
         <view class="muted" style="margin-top: 20rpx">离开后不会主动推送。回来时可以接着聊。</view>

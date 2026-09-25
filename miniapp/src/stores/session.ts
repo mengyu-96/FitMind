@@ -5,13 +5,22 @@ import { request } from '../lib/api'
 export const useSession = defineStore('session', () => {
   const loggedIn = ref(Boolean(uni.getStorageSync('fitmind.token')))
   const userId = ref<string>(uni.getStorageSync('fitmind.user') || '')
-  async function startDevelopmentSession() {
-    const result = await request<{ access_token: string; user_id: string }>('/api/v1/auth/dev-session', 'POST')
+  function acceptSession(result: { access_token: string; user_id: string }) {
     uni.setStorageSync('fitmind.token', result.access_token)
     uni.setStorageSync('fitmind.user', result.user_id)
     userId.value = result.user_id
     loggedIn.value = true
   }
+  async function startDevelopmentSession() {
+    const result = await request<{ access_token: string; user_id: string }>('/api/v1/auth/dev-session', 'POST')
+    acceptSession(result)
+  }
   function localKey(name: string) { return `fitmind.${userId.value}.${name}` }
-  return { loggedIn, userId, startDevelopmentSession, localKey }
+  function clearSession() {
+    uni.removeStorageSync('fitmind.token'); uni.removeStorageSync('fitmind.user')
+    uni.removeStorageSync(localKey('conversation')); uni.removeStorageSync(localKey('pending-chat'))
+    uni.removeStorageSync(localKey('pending-record'))
+    userId.value = ''; loggedIn.value = false
+  }
+  return { loggedIn, userId, startDevelopmentSession, acceptSession, localKey, clearSession }
 })

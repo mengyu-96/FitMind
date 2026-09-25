@@ -6,12 +6,23 @@ from uuid import NAMESPACE_URL, UUID, uuid4, uuid5
 from fastapi import Depends, FastAPI, Header, Query, Request
 from fastapi.exceptions import RequestValidationError
 from fastapi.responses import JSONResponse
-from sqlalchemy import select, text
+from sqlalchemy import delete, select, text
 
 from .agent import CompatiblePlanner, ToolGateway, run_agent
 from .config import Settings
-from .db import AuthSession, Conversation, ObjectRevision, Receipt, Turn, User, database, now
-from .domain import DomainError, apply_changes, fingerprint, owned_object, read_context
+from .db import (
+    AuthSession,
+    Conversation,
+    FitnessObject,
+    ObjectRevision,
+    Outbox,
+    Receipt,
+    Turn,
+    User,
+    database,
+    now,
+)
+from .domain import DomainError, apply_changes, fingerprint, owned_object, read_context, snapshot
 from .schemas import ApplyRequest, MessageRequest
 
 
@@ -83,7 +94,7 @@ def create_app(settings: Settings | None = None, planner=None):
                             "expires_in": settings.session_hours * 3600, "mode": "development"})
 
     @app.post("/api/v1/auth/wechat-login")
-    def wechat_login(code: str, request: Request):
+    def wechat_login(request: Request, code: str = Query(min_length=1, max_length=512)):
         """Exchange a wx.login code; AppSecret stays server-side and is never logged."""
         if not settings.wechat_app_secret:
             raise DomainError("AUTH_NOT_CONFIGURED", "微信登录服务尚未配置 AppSecret。", 503)
@@ -118,6 +129,51 @@ def create_app(settings: Settings | None = None, planner=None):
             user = db.get(User, user_id)
             return ok(request, {"id": user.id, "training_revision": user.training_revision,
                                 "context_revision": user.context_revision, "mode": "development"})
+
+    @app.get("/api/v1/me/export")
+    def export_my_data(request: Request, user_id=Depends(identity)):
+        """Return a machine-readable export limited strictly to the authenticated user."""
+        with sessions() as db:
+            objects = db.scalars(select(FitnessObject).where(
+                FitnessObject.user_id == user_id).order_by(FitnessObject.created_at)).all()
+            revisions = db.scalars(select(ObjectRevision).where(
+                ObjectRevision.user_id == user_id,
+            ).order_by(ObjectRevision.created_at)).all()
+            conversations = db.scalars(select(Conversation).where(
+                Conversation.user_id == user_id,
+            ).order_by(Conversation.created_at)).all()
+            turns = db.scalars(select(Turn).where(
+                Turn.user_id == user_id,
+            ).order_by(Turn.created_at)).all()
+            receipts = db.scalars(select(Receipt).where(Receipt.user_id == user_id)).all()
+            return ok(request, {
+                "format": "fitmind-export-v1", "exported_at": now().isoformat(),
+                "objects": [snapshot(row) for row in objects],
+                "revisions": [{"object_id": row.object_id, "version": row.version,
+                               "snapshot": row.snapshot, "evidence": row.evidence,
+                               "created_at": row.created_at.isoformat()} for row in revisions],
+                "conversations": [{"id": row.id, "created_at": row.created_at.isoformat()}
+                                   for row in conversations],
+                "messages": [row.result for row in turns],
+                "operations": [row.result for row in receipts],
+            })
+
+    @app.delete("/api/v1/me")
+    def delete_my_account(confirmation: str, request: Request, user_id=Depends(identity)):
+        if confirmation != "永久删除我的FitMind数据":
+            raise DomainError("CONFIRMATION_REQUIRED", "删除确认文本不匹配。", 422)
+        with sessions.begin() as db:
+            if db.get(User, user_id) is None:
+                raise DomainError("NOT_FOUND", "账户不存在。", 404)
+            # Remove dependencies in a single committed transaction; no user IDs
+            # or other account's rows are accepted from the request.
+            for model in (Turn, Receipt, ObjectRevision, AuthSession):
+                db.execute(delete(model).where(model.user_id == user_id))
+            db.execute(delete(Conversation).where(Conversation.user_id == user_id))
+            db.execute(delete(Outbox).where(Outbox.user_id == user_id))
+            db.execute(delete(FitnessObject).where(FitnessObject.user_id == user_id))
+            db.execute(delete(User).where(User.id == user_id))
+        return ok(request, {"deleted": True})
 
     @app.get("/api/v1/objects")
     def objects(request: Request, limit: int = Query(default=50, ge=1, le=100),

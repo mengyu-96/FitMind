@@ -4,7 +4,7 @@ export class ApiError extends Error {
   constructor(message: string, public code: string, public requestId = '') { super(message) }
 }
 
-export function request<T>(path: string, method: 'GET' | 'POST' = 'GET', data?: unknown, operationId?: string): Promise<T> {
+export function request<T>(path: string, method: 'GET' | 'POST' | 'DELETE' = 'GET', data?: unknown, operationId?: string): Promise<T> {
   const token = uni.getStorageSync('fitmind.token')
   return new Promise((resolve, reject) => {
     uni.request({
