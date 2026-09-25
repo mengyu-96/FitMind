@@ -3,152 +3,18 @@ import { ref } from 'vue'
 import { onShow } from '@dcloudio/uni-app'
 import { ApiError, errorMessage, operationId, request, type FitnessObject, type Receipt } from '../../lib/api'
 import { useSession } from '../../stores/session'
-
-const session = useSession()
-const items = ref<FitnessObject[]>([])
-const draft = ref('')
-const editing = ref<FitnessObject | null>(null)
-const busy = ref(false)
-const error = ref('')
-type Change = { action: string; kind?: string; payload?: Record<string, unknown>; object_id?: string; expected_version?: number; restore_version?: number }
-type Pending = { operation_id: string; operations: Change[] }
-const pending = ref<Pending | null>(null)
-const hasMore = ref(false)
-const plans = ref<FitnessObject[]>([])
-const planDraft = ref('')
-const planTitle = ref('')
-const editingPlan = ref<FitnessObject | null>(null)
-
-async function load(append = false) {
-  if (!session.loggedIn) return
-  pending.value = uni.getStorageSync(session.localKey('pending-record')) || null
-  try {
-    const result = await request<{ items: FitnessObject[] }>(`/api/v1/objects?offset=${append ? items.value.length : 0}`)
-    items.value = append ? [...items.value, ...result.items] : result.items
-    if (!append) plans.value = result.items.filter(item => item.kind === 'plan')
-    hasMore.value = result.items.length === 50
-  } catch (e) { error.value = errorMessage(e) }
-}
+const session = useSession(); const items = ref<FitnessObject[]>([]); const draft = ref(''); const editing = ref<FitnessObject | null>(null); const busy = ref(false); const error = ref('')
+type Change = { action: string; kind?: string; payload?: Record<string, unknown>; object_id?: string; expected_version?: number; restore_version?: number }; type Pending = { operation_id: string; operations: Change[] }
+const pending = ref<Pending | null>(null); const hasMore = ref(false); const plans = ref<FitnessObject[]>([]); const planDraft = ref(''); const planTitle = ref(''); const editingPlan = ref<FitnessObject | null>(null)
+async function load(append = false) { if (!session.loggedIn) return; pending.value = uni.getStorageSync(session.localKey('pending-record')) || null; try { const result = await request<{ items: FitnessObject[] }>(`/api/v1/objects?offset=${append ? items.value.length : 0}`); items.value = append ? [...items.value, ...result.items] : result.items; if (!append) plans.value = result.items.filter(item => item.kind === 'plan'); hasMore.value = result.items.length === 50 } catch (e) { error.value = errorMessage(e) } }
 onShow(() => { if (!busy.value) load() })
-
-async function apply(operations: Change[]) {
-  if (busy.value) return false
-  busy.value = true; error.value = ''
-  try {
-    if (!pending.value) {
-      pending.value = { operation_id: operationId(), operations }
-      uni.setStorageSync(session.localKey('pending-record'), pending.value)
-    }
-    await request<Receipt>('/api/v1/agent-actions/apply', 'POST', pending.value, pending.value.operation_id)
-    pending.value = null
-    uni.removeStorageSync(session.localKey('pending-record'))
-    draft.value = ''; editing.value = null
-    await load()
-    uni.showToast({ title: '已保存', icon: 'success' })
-    return true
-  } catch (e) {
-    error.value = errorMessage(e)
-    if (e instanceof ApiError && ['VERSION_CONFLICT', 'INVALID_INPUT', 'NOT_FOUND'].includes(e.code)) {
-      // Definitive rejection: allow a fresh edit after reloading; retain draft text.
-      pending.value = null
-      uni.removeStorageSync(session.localKey('pending-record'))
-      editing.value = null
-      await load()
-    }
-    return false
-  } finally { busy.value = false }
-}
-function save() {
-  if (pending.value) return apply(pending.value.operations)
-  if (!draft.value.trim()) return
-  if (editing.value) {
-    return apply([{ action: 'replace', object_id: editing.value.id, expected_version: editing.value.version,
-      payload: { ...editing.value.payload, text: draft.value.trim() } }])
-  }
-  return apply([{ action: 'create', kind: 'activity', payload: { text: draft.value.trim(), activity_status: 'reported' } }])
-}
-function edit(item: FitnessObject) {
-  editing.value = item; draft.value = String(item.payload.text || '')
-  uni.pageScrollTo({ scrollTop: 0, duration: 200 })
-}
-function extra(item: FitnessObject) {
-  return Object.entries(item.payload).filter(([key]) => !['text', 'activity_status'].includes(key))
-    .map(([key, value]) => `${key}：${typeof value === 'object' ? JSON.stringify(value) : value}`).join('\n')
-}
-function planNodes(item: FitnessObject): Array<{ id: string; text: string; status: string }> {
-  return Array.isArray(item.payload.nodes) ? item.payload.nodes as Array<{ id: string; text: string; status: string }> : []
-}
-function undo(item: FitnessObject) {
-  uni.showModal({ title: '恢复上一版本', content: '会生成一个新修订并保留版本历史。', success(result) {
-    if (result.confirm) apply([{ action: 'undo', object_id: item.id, expected_version: item.version, restore_version: item.version - 1 }])
-  } })
-}
-function editPlan(item: FitnessObject) {
-  editingPlan.value = item
-  planTitle.value = String(item.payload.title || '')
-  planDraft.value = String(item.payload.text || '')
-}
-async function savePlan() {
-  const nodes = planDraft.value.split(/\n+/).map(text => text.trim()).filter(Boolean)
-    .map((text, index) => ({ id: planNodes(editingPlan.value || plans.value[0] || { payload: {} } as FitnessObject)[index]?.id || operationId(),
-      text, status: 'unstarted' }))
-  if (!nodes.length) { error.value = '写下一个计划方向或行动，再保存。'; return }
-  const targetPlan = editingPlan.value || plans.value[0] || null
-  const payload = { ...(targetPlan?.payload || {}), title: planTitle.value.trim() || '我的训练计划',
-    text: planDraft.value.trim(), nodes }
-  const change: Change = targetPlan
-    ? { action: 'replace', object_id: targetPlan.id, expected_version: targetPlan.version, payload }
-    : { action: 'create', kind: 'plan', payload }
-  if (await apply([change])) {
-    editingPlan.value = null; planTitle.value = ''; planDraft.value = ''
-  }
-}
+async function apply(operations: Change[]) { if (busy.value) return false; busy.value = true; error.value = ''; try { if (!pending.value) { pending.value = { operation_id: operationId(), operations }; uni.setStorageSync(session.localKey('pending-record'), pending.value) }; await request<Receipt>('/api/v1/agent-actions/apply', 'POST', pending.value, pending.value.operation_id); pending.value = null; uni.removeStorageSync(session.localKey('pending-record')); draft.value = ''; editing.value = null; await load(); uni.showToast({ title: '已保存', icon: 'success' }); return true } catch (e) { error.value = errorMessage(e); if (e instanceof ApiError && ['VERSION_CONFLICT', 'INVALID_INPUT', 'NOT_FOUND'].includes(e.code)) { pending.value = null; uni.removeStorageSync(session.localKey('pending-record')); editing.value = null; await load() }; return false } finally { busy.value = false } }
+function save() { if (pending.value) return apply(pending.value.operations); if (!draft.value.trim()) { error.value = '先写下一点内容，再保存记录。'; return }; if (editing.value) return apply([{ action: 'replace', object_id: editing.value.id, expected_version: editing.value.version, payload: { ...editing.value.payload, text: draft.value.trim() } }]); return apply([{ action: 'create', kind: 'activity', payload: { text: draft.value.trim(), activity_status: 'reported' } }]) }
+function edit(item: FitnessObject) { editing.value = item; draft.value = String(item.payload.text || ''); uni.pageScrollTo({ scrollTop: 0, duration: 200 }) }
+function extra(item: FitnessObject) { return Object.entries(item.payload).filter(([key]) => !['text', 'activity_status'].includes(key)).map(([key, value]) => `${key}: ${typeof value === 'object' ? JSON.stringify(value) : value}`).join('\n') }
+function planNodes(item: FitnessObject): Array<{ id: string; text: string; status: string }> { return Array.isArray(item.payload.nodes) ? item.payload.nodes as Array<{ id: string; text: string; status: string }> : [] }
+function undo(item: FitnessObject) { uni.showModal({ title: '恢复上一版？', content: '这会生成一个新的版本，之前的内容仍会保留。', success(result) { if (result.confirm) apply([{ action: 'undo', object_id: item.id, expected_version: item.version, restore_version: item.version - 1 }]) } }) }
+function editPlan(item: FitnessObject) { editingPlan.value = item; planTitle.value = String(item.payload.title || ''); planDraft.value = String(item.payload.text || '') }
+async function savePlan() { const text = planDraft.value.trim(); if (!text) { error.value = '先写下一个目标或行动，再保存计划。'; return }; const previous = editingPlan.value || plans.value[0] || null; const oldNodes = previous ? planNodes(previous) : []; const nodes = text.split(/\n+/).map(value => value.trim()).filter(Boolean).map((value, index) => ({ id: oldNodes[index]?.id || operationId(), text: value, status: 'unstarted' })); const payload = { ...(previous?.payload || {}), title: planTitle.value.trim() || '我的训练计划', text, nodes }; const change: Change = previous ? { action: 'replace', object_id: previous.id, expected_version: previous.version, payload } : { action: 'create', kind: 'plan', payload }; if (await apply([change])) { editingPlan.value = null; planTitle.value = ''; planDraft.value = '' } }
 </script>
-
-<template>
-  <view class="page">
-    <view class="eyebrow">YOUR PRACTICE</view><view class="title">记录自己的节奏</view>
-    <view class="subtitle">一句话也值得留下。没有组数、重量或时间，也可以保存。</view>
-    <view v-if="!session.loggedIn" class="empty">请先在“我的”启用测试会话。</view>
-    <template v-else>
-      <view class="card">
-        <view class="label">{{ editing ? '更正这条记录 · v' + editing.version : '留下一条记录' }}</view>
-        <textarea v-model="draft" :maxlength="8000" :disabled="busy || !!pending" placeholder="例如：今天散步了一会儿，心情轻松了些。" />
-        <view v-if="error" class="error">{{ error }}</view>
-        <view v-if="pending" class="muted">有一条提交待确认，重试会沿用原标识。</view>
-        <view class="row">
-          <button v-if="editing && !pending" class="secondary" :disabled="busy" @tap="editing = null; draft = ''">取消更正</button>
-          <button class="primary" :loading="busy" :disabled="busy || (!draft.trim() && !pending)" @tap="save">{{ pending ? '重试原提交' : '保存记录' }}</button>
-        </view>
-      </view>
-      <view class="card">
-        <view class="label">{{ editingPlan || plans.length ? '调整当前计划 · v' + (editingPlan || plans[0]).version : '把想法整理成计划' }}</view>
-        <input v-model="planTitle" :disabled="busy" maxlength="120" placeholder="计划名称（可选）" />
-        <textarea v-model="planDraft" :disabled="busy" maxlength="8000" placeholder="写下目标或安排。可以分行列出行动，不需要填固定表格。" />
-        <view class="muted">保存为可编辑的计划草案；系统不会把计划内容当作已完成训练。</view>
-        <view class="row"><button class="primary" :disabled="busy || !planDraft.trim()" :loading="busy" @tap="savePlan">{{ editingPlan ? '保存调整' : '保存计划' }}</button></view>
-      </view>
-      <view v-for="plan in plans" :key="plan.id" class="card">
-        <view class="label">计划 · v{{ plan.version }}</view>
-        <view class="body">{{ plan.payload.title || '训练计划' }}</view>
-        <view class="muted" style="margin-top: 12rpx">{{ plan.payload.text || '' }}</view>
-        <view v-for="(node, index) in planNodes(plan)" :key="node.id" class="row">
-          <text class="tag">{{ index + 1 }}</text><text class="body">{{ node.text }}</text><text class="muted">尚未记录完成</text>
-        </view>
-        <button class="secondary small" style="margin-top: 18rpx" :disabled="busy || !!pending" @tap="editPlan(plan)">编辑计划</button>
-      </view>
-      <view class="subtitle" style="margin-top: 32rpx">已保存的内容</view>
-      <view v-if="!items.length" class="empty">这里还没有记录。<br />从一小段经历开始就好。</view>
-      <view v-for="item in items" :key="item.id" class="card">
-        <view class="label">{{ item.kind === 'activity' ? '活动自述' : item.kind }} · v{{ item.version }}</view>
-        <view class="body">{{ item.payload.text || '自由内容' }}</view>
-        <view v-if="extra(item)" class="muted" style="margin-top: 16rpx">{{ extra(item) }}</view>
-        <view class="row">
-          <button class="secondary small" :disabled="busy || !!pending" @tap="edit(item)">补充 / 更正</button>
-          <button v-if="item.version > 1" class="secondary small" :disabled="busy || !!pending" @tap="undo(item)">恢复上一版</button>
-        </view>
-      </view>
-      <button v-if="hasMore" class="secondary" style="margin-top: 24rpx" @tap="load(true)">加载更多</button>
-    </template>
-  </view>
-</template>
+<template><view class="page"><view class="eyebrow">FITMIND</view><view class="title">记录和计划</view><view class="subtitle">把今天的感受、训练和想法记下来。不知道组数、重量或时长，也完全可以开始。</view><view v-if="!session.loggedIn" class="empty">请先到“我的”登录，登录后才能保存记录和计划。</view><template v-else><view class="card"><view class="label">{{ editing ? '修改这条记录' : '写下今天做了什么' }}</view><textarea v-model="draft" :maxlength="8000" :disabled="busy || !!pending" placeholder="例如：今天散步了半小时，心情比昨天轻松。" /><view v-if="error" class="error">{{ error }}</view><view v-if="pending" class="hint">刚才的保存还没有收到确认。点击重试不会重复保存。</view><view class="row"><button v-if="editing && !pending" class="secondary" :disabled="busy" @tap="editing = null; draft = ''">取消修改</button><button class="primary" :loading="busy" :disabled="busy || (!draft.trim() && !pending)" @tap="save">{{ pending ? '重试保存' : '保存记录' }}</button></view></view><view class="card"><view class="label">{{ editingPlan || plans.length ? '调整我的计划' : '把想法整理成计划' }}</view><input v-model="planTitle" :disabled="busy" maxlength="120" placeholder="计划名称（可以不填）" /><textarea v-model="planDraft" :disabled="busy" maxlength="8000" placeholder="写下目标或行动，每行一件事。例如：每周散步三次。" /><view class="muted">保存后可以继续修改，并会保留之前的版本。这里不会自动判断你是否完成训练。</view><view class="row"><button class="primary" :disabled="busy || !planDraft.trim()" :loading="busy" @tap="savePlan">{{ editingPlan ? '保存修改' : '保存计划' }}</button></view></view><view v-for="plan in plans" :key="plan.id" class="card"><view class="label">我的计划 · 第 {{ plan.version }} 版</view><view class="body">{{ plan.payload.title || '训练计划' }}</view><view class="muted" style="margin-top: 12rpx">{{ plan.payload.text || '' }}</view><view v-for="(node, index) in planNodes(plan)" :key="node.id" class="row"><text class="tag">{{ index + 1 }}</text><text class="body">{{ node.text }}</text></view><view class="muted" style="margin-top: 12rpx">计划事项需要你自己记录完成情况。</view><button class="secondary small" style="margin-top: 18rpx" :disabled="busy || !!pending" @tap="editPlan(plan)">编辑计划</button><button v-if="plan.version > 1" class="ghost small" style="margin-top: 14rpx" :disabled="busy || !!pending" @tap="undo(plan)">恢复上一版</button></view><view class="subtitle" style="margin-top: 32rpx">已保存的记录</view><view v-if="!items.length" class="empty">这里还没有记录。先写下一小段经历就好。</view><view v-for="item in items" :key="item.id" class="card"><view class="label">{{ item.kind === 'activity' ? '训练记录' : '我的记录' }} · 第 {{ item.version }} 版</view><view class="body">{{ item.payload.text || '没有文字内容' }}</view><view v-if="extra(item)" class="muted" style="margin-top: 16rpx">{{ extra(item) }}</view><view class="row"><button class="secondary small" :disabled="busy || !!pending" @tap="edit(item)">补充或修改</button><button v-if="item.version > 1" class="ghost small" :disabled="busy || !!pending" @tap="undo(item)">恢复上一版</button></view></view><button v-if="hasMore" class="secondary" style="margin-top: 24rpx" @tap="load(true)">加载更多</button></template></view></template>
