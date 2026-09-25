@@ -1,0 +1,21 @@
+{
+  "pages": [
+    { "path": "pages/coach/index", "style": { "navigationBarTitleText": "FitMind · 教练" } },
+    { "path": "pages/records/index", "style": { "navigationBarTitleText": "记录与计划" } },
+    { "path": "pages/me/index", "style": { "navigationBarTitleText": "我的" } }
+  ],
+  "globalStyle": {
+    "navigationBarTextStyle": "black",
+    "navigationBarBackgroundColor": "#f5f6f2",
+    "backgroundColor": "#f5f6f2"
+  },
+  "tabBar": {
+    "color": "#7b8980", "selectedColor": "#244f3f", "backgroundColor": "#ffffff",
+    "borderStyle": "white",
+    "list": [
+      { "pagePath": "pages/coach/index", "text": "教练" },
+      { "pagePath": "pages/records/index", "text": "记录与计划" },
+      { "pagePath": "pages/me/index", "text": "我的" }
+    ]
+  }
+}

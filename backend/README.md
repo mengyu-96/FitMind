@@ -1,6 +1,21 @@
 # FitMind 后端开发环境
 
-当前交付：独立Python环境、依赖定义和锁定清单、环境冒烟检查。应用API、数据库迁移和真实模型接入尚未实现。
+当前交付：G1 后端纵向闭环（FastAPI、PostgreSQL迁移、自由记录/版本修订/幂等回执、受限Agent工具循环）及独立Python环境。正式微信登录、生产鉴权、计划执行、已审知识库和持续委托仍未开放。
+
+## 本地启动 G1
+
+```powershell
+$tools = 'D:\work\FitMind\.conda\fitmind-tools'
+$env:PATH = "$tools;$tools\Library\bin;$env:PATH"
+& "$tools\Library\bin\pg_ctl.exe" -D 'D:\work\FitMind\.cache\postgres' -l 'D:\work\FitMind\.cache\postgres.log' -o '-h 127.0.0.1 -p 55432' -w start
+& "$tools\Library\bin\createdb.exe" -h 127.0.0.1 -p 55432 -U postgres fitmind
+& '.\.conda\fitmind-backend\python.exe' -m alembic -c backend/alembic.ini upgrade head
+& '.\.conda\fitmind-backend\python.exe' -m uvicorn app.main:app --app-dir backend --reload --port 8000
+```
+
+根目录 `.env` 只用于本机开发并被 Git 忽略；前端不接触 API Key。`dev-session` 仅用于本机联调，生产配置会拒绝启动。
+
+验证命令：`pytest backend -q`、`backend/scripts/check_model.py`、`backend/scripts/check_agent.py`，以及 `miniapp` 下的 `npm run typecheck` 和 `npm run build:mp-weixin`。构建产物位于 `miniapp/dist/build/mp-weixin`；填入微信 AppID 后导入开发者工具。
 
 ## 环境位置
 

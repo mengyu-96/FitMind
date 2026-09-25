@@ -1,0 +1,1 @@
+"""FitMind application package."""
