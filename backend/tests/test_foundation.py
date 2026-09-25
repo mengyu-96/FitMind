@@ -176,7 +176,7 @@ def test_envelope_and_release_guards(client, auth):
                                  "payload": {"title": "本周安排", "nodes": [{"text": "按感觉开始"}]}}])
     assert plan.status_code == 200
     with pytest.raises(ValueError, match="Production requires"):
-        Settings(environment="production")
+        Settings(environment="production", _env_file=None)
 
 
 def test_return_does_not_create_messages(client, auth):

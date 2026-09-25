@@ -14,6 +14,7 @@ from sqlalchemy import func, select
 from .config import Settings
 from .db import FitnessObject
 from .domain import DomainError, apply_changes, read_context
+from .knowledge import search_published
 from .schemas import ApplyRequest, Change
 
 
@@ -32,6 +33,10 @@ READ_TOOLS = [
         "limit": {"type": "integer", "minimum": 1, "maximum": 50},
     }),
     tool("calculate_summary", "统计真实记录条数，未知的训练次数、时间和重量不推测。", {}),
+    tool("search_knowledge", "Search only reviewed and published fitness knowledge; return source metadata.", {
+        "query": {"type": "string", "minLength": 2, "maxLength": 500},
+        "limit": {"type": "integer", "minimum": 1, "maximum": 5},
+    }, ["query"]),
 ]
 CHANGE_SCHEMA = {
     "type": "array", "minItems": 1, "maxItems": 10,
@@ -117,7 +122,7 @@ class ToolGateway:
             if arguments:
                 raise DomainError("INVALID_ARGUMENTS", "此能力不接收额外参数。", 422)
             return {"available": sorted(available), "unavailable": [
-                "plan_execution", "standing_mandate", "offline_notification", "search_knowledge",
+                "plan_execution", "standing_mandate", "offline_notification",
             ]}
         with self.sessions.begin() as db:
             if name == "read_context":
@@ -128,6 +133,11 @@ class ToolGateway:
                 kind = arguments.get("kind")
                 return {"objects": [obj for obj in values if not kind or obj["kind"] == kind],
                         "limit": limit}
+            if name == "search_knowledge":
+                if set(arguments) - {"query", "limit"} or not isinstance(arguments.get("query"), str):
+                    raise DomainError("INVALID_ARGUMENTS", "Invalid knowledge search arguments.", 422)
+                return {"items": search_published(db, arguments["query"],
+                                                  limit=max(1, min(int(arguments.get("limit", 5)), 5)))}
             if name == "calculate_summary":
                 if arguments:
                     raise DomainError("INVALID_ARGUMENTS", "此能力不接收额外参数。", 422)

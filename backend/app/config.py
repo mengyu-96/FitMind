@@ -18,6 +18,7 @@ class Settings(BaseSettings):
     model_timeout_seconds: int = 35
     wechat_app_id: str = "wx7262dc559800af57"
     wechat_app_secret: str = ""
+    knowledge_admin_token: str = ""
 
     @model_validator(mode="after")
     def validate_environment(self):

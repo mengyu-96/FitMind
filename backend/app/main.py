@@ -182,6 +182,74 @@ def create_app(settings: Settings | None = None, planner=None):
             return ok(request, {"items": read_context(db, user_id, limit=limit, offset=offset),
                                 "offset": offset, "limit": limit})
 
+    def require_knowledge_admin(token: str = Header(default="", alias="X-Knowledge-Admin-Token")):
+        if not settings.knowledge_admin_token or not secrets.compare_digest(
+                token, settings.knowledge_admin_token):
+            raise DomainError("FORBIDDEN", "Knowledge administration is not available.", 403)
+
+    @app.post("/api/v1/admin/knowledge")
+    def create_knowledge(body: dict, request: Request, _=Depends(require_knowledge_admin)):
+        from .knowledge import create_document
+        with sessions.begin() as db:
+            doc = create_document(db, slug=body.get("slug", ""), title=body.get("title", ""),
+                                  body=body.get("body", ""), source_name=body.get("source_name", ""),
+                                  source_url=body.get("source_url"))
+            result = knowledge_snapshot(doc)
+        return ok(request, result)
+
+    def knowledge_snapshot(doc):
+        return {"id": doc.id, "slug": doc.slug, "version": doc.version, "title": doc.title,
+                "body": doc.body, "source_name": doc.source_name, "source_url": doc.source_url,
+                "status": doc.status, "reviewer": doc.reviewer,
+                "reviewed_at": doc.reviewed_at.isoformat() if doc.reviewed_at else None,
+                "content_hash": doc.content_hash}
+
+    @app.get("/api/v1/admin/knowledge")
+    def list_knowledge(request: Request, status: str | None = None,
+                       _=Depends(require_knowledge_admin)):
+        from .db import KnowledgeDocument
+        with sessions() as db:
+            query = select(KnowledgeDocument).order_by(KnowledgeDocument.updated_at.desc())
+            if status:
+                query = query.where(KnowledgeDocument.status == status)
+            return ok(request, {"items": [knowledge_snapshot(doc) for doc in db.scalars(query.limit(200))]})
+
+    @app.put("/api/v1/admin/knowledge/{doc_id}")
+    def revise_knowledge(doc_id: UUID, body: dict, request: Request,
+                         _=Depends(require_knowledge_admin)):
+        from .db import KnowledgeDocument
+        from .knowledge import revise_document
+        with sessions.begin() as db:
+            doc = db.get(KnowledgeDocument, str(doc_id))
+            if doc is None:
+                raise DomainError("NOT_FOUND", "Knowledge document not found.", 404)
+            revise_document(db, doc, expected_version=body.get("expected_version", -1),
+                            title=body.get("title", ""), body=body.get("body", ""),
+                            source_name=body.get("source_name", ""), source_url=body.get("source_url"))
+            result = knowledge_snapshot(doc)
+        return ok(request, result)
+
+    @app.post("/api/v1/admin/knowledge/{doc_id}/review")
+    def review_knowledge(doc_id: UUID, body: dict, request: Request,
+                         _=Depends(require_knowledge_admin)):
+        from .db import KnowledgeDocument
+        from .knowledge import review_document
+        with sessions.begin() as db:
+            doc = db.get(KnowledgeDocument, str(doc_id))
+            if doc is None:
+                raise DomainError("NOT_FOUND", "Knowledge document not found.", 404)
+            review_document(db, doc, decision=body.get("decision", ""),
+                            reviewer=body.get("reviewer", ""))
+            result = knowledge_snapshot(doc)
+        return ok(request, result)
+
+    @app.get("/api/v1/knowledge/search")
+    def search_knowledge(request: Request, query: str = Query(min_length=2, max_length=500),
+                         limit: int = Query(default=5, ge=1, le=5)):
+        from .knowledge import search_published
+        with sessions() as db:
+            return ok(request, {"items": search_published(db, query, limit=limit)})
+
     @app.get("/api/v1/objects/{object_id}/revisions")
     def revisions(object_id: UUID, request: Request, user_id=Depends(identity)):
         with sessions() as db:
