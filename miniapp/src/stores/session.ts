@@ -22,5 +22,6 @@ export const useSession = defineStore('session', () => {
     uni.removeStorageSync(localKey('pending-record'))
     userId.value = ''; loggedIn.value = false
   }
+  uni.$on('fitmind-auth-expired', clearSession)
   return { loggedIn, userId, startDevelopmentSession, acceptSession, localKey, clearSession }
 })
