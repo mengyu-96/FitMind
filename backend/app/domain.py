@@ -42,10 +42,15 @@ def snapshot(obj: FitnessObject) -> dict:
     }
 
 
-def read_context(db: Session, user_id: str, *, limit: int = 50, offset: int = 0) -> list[dict]:
-    objects = db.scalars(select(FitnessObject).where(
+def read_context(db: Session, user_id: str, *, limit: int = 50, offset: int = 0,
+                 kind: str | None = None) -> list[dict]:
+    query = select(FitnessObject).where(
         FitnessObject.user_id == user_id, FitnessObject.lifecycle == "active",
-    ).order_by(FitnessObject.updated_at.desc(), FitnessObject.id).offset(offset).limit(limit))
+    )
+    if kind:
+        query = query.where(FitnessObject.kind == kind)
+    objects = db.scalars(query.order_by(FitnessObject.updated_at.desc(), FitnessObject.id)
+                          .offset(offset).limit(limit))
     return [snapshot(obj) for obj in objects]
 
 

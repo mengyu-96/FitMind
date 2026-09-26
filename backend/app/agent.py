@@ -129,10 +129,10 @@ class ToolGateway:
                 if set(arguments) - {"kind", "limit"}:
                     raise DomainError("INVALID_ARGUMENTS", "查询参数不支持。", 422)
                 limit = max(1, min(int(arguments.get("limit", 30)), 50))
-                values = read_context(db, self.user_id, limit=limit)
                 kind = arguments.get("kind")
-                return {"objects": [obj for obj in values if not kind or obj["kind"] == kind],
-                        "limit": limit}
+                # Filter before pagination so type-specific reads do not lose matches.
+                values = read_context(db, self.user_id, limit=limit, kind=kind)
+                return {"objects": values, "limit": limit, "kind": kind}
             if name == "search_knowledge":
                 if set(arguments) - {"query", "limit"} or not isinstance(arguments.get("query"), str):
                     raise DomainError("INVALID_ARGUMENTS", "Invalid knowledge search arguments.", 422)
