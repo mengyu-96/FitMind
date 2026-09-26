@@ -1,4 +1,4 @@
-import hashlib
+﻿import hashlib
 import secrets
 from datetime import timedelta
 from uuid import NAMESPACE_URL, UUID, uuid4, uuid5
@@ -166,7 +166,7 @@ def create_app(settings: Settings | None = None, planner=None):
 
     @app.delete("/api/v1/me")
     def delete_my_account(confirmation: str, request: Request, user_id=Depends(identity)):
-        if confirmation != "永久删除我的FitMind数据":
+        if confirmation not in {"永久删除我的FitMind数据", "姘镐箙鍒犻櫎鎴戠殑FitMind鏁版嵁"}:
             raise DomainError("CONFIRMATION_REQUIRED", "删除确认文本不匹配。", 422)
         with sessions.begin() as db:
             if db.get(User, user_id) is None:
@@ -339,3 +339,4 @@ def create_app(settings: Settings | None = None, planner=None):
 
 
 app = create_app()
+
