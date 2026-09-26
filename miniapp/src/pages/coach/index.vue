@@ -1,12 +1,13 @@
 <script setup lang="ts">
 import { ref } from 'vue'
-import { onShow } from '@dcloudio/uni-app'
+import { onShow, onShareAppMessage } from '@dcloudio/uni-app'
 import { errorMessage, operationId, request, type Turn } from '../../lib/api'
 import { useSession } from '../../stores/session'
 const session = useSession(); const draft = ref(''); const turns = ref<Turn[]>([]); const busy = ref(false); const error = ref('')
 type Pending = { operation_id: string; text: string; intent: 'chat' | 'record' | 'task' }; const pending = ref<Pending | null>(null); let conversationId = ''
 async function load() { if (!session.loggedIn || busy.value) return; pending.value = uni.getStorageSync(session.localKey('pending-chat')) || null; conversationId = uni.getStorageSync(session.localKey('conversation')) || ''; if (!conversationId) return; try { turns.value = (await request<{ items: Turn[] }>(`/api/v1/conversations/${conversationId}/messages`)).items; if (pending.value && turns.value.some(t => t.operation_id === pending.value?.operation_id)) { pending.value = null; uni.removeStorageSync(session.localKey('pending-chat')) } } catch (e) { error.value = errorMessage(e) } }
 onShow(load)
+onShareAppMessage(() => ({ title: '记录今天的状态，和 FitMind 教练聊聊', path: '/pages/coach/index' }))
 async function send(intent: 'chat' | 'record' | 'task') { if (busy.value || (!draft.value.trim() && !pending.value)) return; busy.value = true; error.value = ''; try { if (!conversationId) { const result = await request<{ id: string }>('/api/v1/conversations', 'POST'); conversationId = result.id; uni.setStorageSync(session.localKey('conversation'), result.id) } if (!pending.value) { pending.value = { operation_id: operationId(), text: draft.value.trim(), intent }; uni.setStorageSync(session.localKey('pending-chat'), pending.value) } const result = await request<Turn>(`/api/v1/conversations/${conversationId}/messages`, 'POST', pending.value, pending.value.operation_id); if (!turns.value.some(t => t.operation_id === result.operation_id)) turns.value.push(result); uni.removeStorageSync(session.localKey('pending-chat')); pending.value = null; draft.value = '' } catch (e) { error.value = errorMessage(e) } finally { busy.value = false } }
 function goToMe() { uni.switchTab({ url: '/pages/me/index' }) }
 </script>

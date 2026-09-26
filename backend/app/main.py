@@ -129,6 +129,14 @@ def create_app(settings: Settings | None = None, planner=None):
         return ok(request, {"access_token": token, "user_id": user.id,
                             "expires_in": settings.session_hours * 3600, "mode": "wechat"})
 
+    @app.delete("/api/v1/auth/session")
+    def logout(request: Request, authorization: str = Header(default=""), user_id=Depends(identity)):
+        """Revoke only the current access token; other devices remain signed in."""
+        token = authorization[7:]
+        with sessions.begin() as db:
+            db.delete(db.get(AuthSession, hashlib.sha256(token.encode()).hexdigest()))
+        return ok(request, {"logged_out": True})
+
     @app.get("/api/v1/me")
     def me(request: Request, user_id=Depends(identity)):
         with sessions() as db:

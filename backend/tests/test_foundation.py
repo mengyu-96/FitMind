@@ -202,3 +202,9 @@ def test_export_and_delete_are_authenticated_and_isolated(client, auth, app):
     assert client.get("/api/v1/objects", headers=other_auth).json()["data"]["items"] == []
     with app.state.sessions() as db:
         assert db.get(User, other["user_id"]) is not None
+
+
+def test_logout_revokes_only_current_session(client, auth):
+    response = client.delete("/api/v1/auth/session", headers=auth)
+    assert response.status_code == 200
+    assert client.get("/api/v1/objects", headers=auth).status_code == 401
