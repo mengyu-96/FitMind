@@ -109,6 +109,11 @@ class KnowledgeDocument(Base):
     reviewer: Mapped[str | None] = mapped_column(String(200), nullable=True)
     reviewed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     content_hash: Mapped[str] = mapped_column(String(64))
+    topic: Mapped[str] = mapped_column(String(120), default="general")
+    evidence_level: Mapped[str] = mapped_column(String(40), default="reviewed_general")
+    population: Mapped[str] = mapped_column(String(500), default="一般成年用户")
+    contraindications: Mapped[str] = mapped_column(String(2000), default="")
+    review_due_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=now)
     updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=now)
 

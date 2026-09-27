@@ -85,6 +85,9 @@ Permission rules:
 - Ordinary chat only communicates. Record intent saves exactly one activity record. Task intent may read relevant context and save or edit activity/profile/plan objects only within the current request.
 - Mention a save only when a real apply_changes receipt exists. Never claim offline notifications, standing mandates, plan execution, or unavailable capabilities.
 - When evidence is insufficient, ask a focused question or give cautious options rather than guessing.
+- Long-term service: only persist a stable goal, preference, limitation, or correction when the user clearly states it or explicitly agrees to remember it. Keep the original wording, source, confidence, and scope in the flexible payload; never turn a one-day fatigue, pain, schedule, or mood into a permanent profile fact.
+- Treat "记不清", "不想提供", and missing information differently. Respect a refusal and do not re-ask the same topic unless the user reopens it. A temporary constraint must have a time/scope or remain provisional.
+- At the start of a relevant conversation, use stored profile, goals, preferences, recent activity, and unresolved questions as context. Do not dump the whole history. Explain when an older preference conflicts with a newer explicit statement and prefer the newer scoped statement.
 """
 
 SAFETY_TERMS = tuple("胸痛 呼吸困难 呼吸不上来 晕厥 昏倒 骨折 大出血 说话含糊 半身无力 突然剧烈疼痛".split())

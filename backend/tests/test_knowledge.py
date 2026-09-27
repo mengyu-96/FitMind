@@ -4,7 +4,9 @@
 def test_knowledge_requires_admin_and_only_published_searches(client, app):
     doc = {"slug": "strength-basics", "title": "Strength basics",
            "body": "Progress gradually and allow recovery between demanding sessions.",
-           "source_name": "Reviewed guide", "source_url": "https://example.org/guide"}
+           "source_name": "Reviewed guide", "source_url": "https://example.org/guide",
+           "topic": "training", "evidence_level": "guideline",
+           "population": "一般成年用户", "contraindications": "疼痛加重时停止并咨询专业人士"}
     admin = client
     assert admin.post("/api/v1/admin/knowledge", json=doc).status_code == 403
     headers = {"X-Knowledge-Admin-Token": "test-secret"}
@@ -12,12 +14,14 @@ def test_knowledge_requires_admin_and_only_published_searches(client, app):
     assert created.status_code == 200
     item = created.json()["data"]
     assert item["status"] == "draft"
+    assert item["evidence_level"] == "guideline"
     assert admin.get("/api/v1/knowledge/search", params={"query": "strength recovery"}).json()["data"]["items"] == []
     review = admin.post(f"/api/v1/admin/knowledge/{item['id']}/review", headers=headers,
                             json={"decision": "approve", "reviewer": "editor"})
     assert review.json()["data"]["status"] == "published"
     found = admin.get("/api/v1/knowledge/search", params={"query": "strength recovery"}).json()["data"]["items"]
     assert found and found[0]["source_name"] == "Reviewed guide"
+    assert found[0]["topic"] == "training"
     revised = admin.put(f"/api/v1/admin/knowledge/{item['id']}", headers=headers, json={
             "expected_version": 1, "title": "Strength basics revised",
             "body": "Progress gradually and keep recovery time.",
@@ -51,6 +55,8 @@ def test_agent_can_retrieve_only_reviewed_knowledge(client, app, auth):
     conversation = client.post("/api/v1/conversations", headers=auth).json()["data"]["id"]
     class KnowledgePlanner:
         def complete(self, messages, tools):
+            assert any("No matching reviewed source" in message.get("content", "")
+                       or "Recovery" in message.get("content", "") for message in messages)
             if any(message["role"] == "tool" for message in messages):
                 return {"role": "assistant", "content": "已找到经审核来源。"}
             assert any(item["function"]["name"] == "search_knowledge" for item in tools)

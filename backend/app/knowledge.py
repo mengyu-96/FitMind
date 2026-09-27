@@ -19,26 +19,33 @@ def clean_text(value: str, limit: int) -> str:
 
 
 def create_document(db: Session, *, slug: str, title: str, body: str,
-                    source_name: str, source_url: str | None = None) -> KnowledgeDocument:
+                    source_name: str, source_url: str | None = None,
+                    topic: str = "general", evidence_level: str = "reviewed_general",
+                    population: str = "一般成年用户", contraindications: str = "") -> KnowledgeDocument:
     if not re.fullmatch(r"[a-z0-9][a-z0-9._-]{1,199}", slug):
         raise DomainError("INVALID_SLUG", "文档编号格式不正确。", 422)
     if db.scalar(select(KnowledgeDocument.id).where(KnowledgeDocument.slug == slug)):
         raise DomainError("SLUG_EXISTS", "该文档编号已存在。", 409)
     title, body, source_name = (clean_text(title, 240), clean_text(body, 12000),
                                 clean_text(source_name, 300))
+    topic, population = clean_text(topic, 120), clean_text(population, 500)
+    contraindications = clean_text(contraindications, 2000) if contraindications else ""
     if source_url and (not source_url.startswith("https://") or len(source_url) > 2000):
         raise DomainError("INVALID_SOURCE", "来源地址格式不正确。", 422)
     doc = KnowledgeDocument(id=uid(), slug=slug, version=1, title=title, body=body,
                              source_name=source_name, source_url=source_url,
                              content_hash=hashlib.sha256(body.encode()).hexdigest(),
-                             status="draft")
+                             status="draft", topic=topic, evidence_level=evidence_level,
+                             population=population, contraindications=contraindications)
     db.add(doc)
     db.flush()
     return doc
 
 
 def revise_document(db: Session, doc: KnowledgeDocument, *, expected_version: int,
-                    title: str, body: str, source_name: str, source_url: str | None):
+                    title: str, body: str, source_name: str, source_url: str | None,
+                    topic: str = "general", evidence_level: str = "reviewed_general",
+                    population: str = "一般成年用户", contraindications: str = ""):
     if doc.status not in {"draft", "rejected"}:
         raise DomainError("INVALID_TRANSITION", "Only unpublished documents can be edited.", 409)
     if doc.version != expected_version:
@@ -48,6 +55,10 @@ def revise_document(db: Session, doc: KnowledgeDocument, *, expected_version: in
     doc.body = clean_text(body, 12000)
     doc.source_name = clean_text(source_name, 300)
     doc.source_url = source_url
+    doc.topic = clean_text(topic, 120)
+    doc.evidence_level = evidence_level
+    doc.population = clean_text(population, 500)
+    doc.contraindications = clean_text(contraindications, 2000) if contraindications else ""
     if source_url and (not source_url.startswith("https://") or len(source_url) > 2000):
         raise DomainError("INVALID_SOURCE", "Source URL must use HTTPS.", 422)
     doc.content_hash = hashlib.sha256(doc.body.encode()).hexdigest()
@@ -67,14 +78,17 @@ def review_document(db: Session, doc: KnowledgeDocument, *, decision: str, revie
         if doc.status not in {"draft", "rejected"}:
             raise DomainError("INVALID_TRANSITION", "当前文档状态不能直接发布。", 409)
         doc.status = "published"
+        doc.review_due_at = now() + timedelta(days=365)
     elif decision == "reject":
         if doc.status != "draft":
             raise DomainError("INVALID_TRANSITION", "只能驳回待审版本。", 409)
         doc.status = "rejected"
+        doc.review_due_at = None
     else:
         if doc.status != "published":
             raise DomainError("INVALID_TRANSITION", "只有已发布版本可以撤回。", 409)
         doc.status = "withdrawn"
+        doc.review_due_at = None
     doc.reviewer = reviewer.strip()
     doc.reviewed_at = now()
     doc.updated_at = now()
@@ -87,6 +101,8 @@ def search_published(db: Session, query: str, *, limit: int = 5):
         return []
     docs = list(db.scalars(select(KnowledgeDocument).where(
         KnowledgeDocument.status == "published",
+        KnowledgeDocument.review_due_at.is_(None) |
+        (KnowledgeDocument.review_due_at >= now()),
     ).order_by(KnowledgeDocument.updated_at.desc()).limit(300)))
     scored = []
     for doc in docs:
@@ -104,6 +120,8 @@ def search_published(db: Session, query: str, *, limit: int = 5):
              "excerpt": doc.body[:1200], "source_name": doc.source_name,
              "source_url": doc.source_url, "reviewer": doc.reviewer,
              "reviewed_at": doc.reviewed_at.isoformat() if doc.reviewed_at else None,
+             "topic": doc.topic, "evidence_level": doc.evidence_level,
+             "population": doc.population, "contraindications": doc.contraindications,
              "score": round(score, 4)} for score, doc in scored[:limit]]
 
 

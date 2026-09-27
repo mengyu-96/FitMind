@@ -214,6 +214,9 @@ def create_app(settings: Settings | None = None, planner=None):
         return {"id": doc.id, "slug": doc.slug, "version": doc.version, "title": doc.title,
                 "body": doc.body, "source_name": doc.source_name, "source_url": doc.source_url,
                 "status": doc.status, "reviewer": doc.reviewer,
+                "topic": doc.topic, "evidence_level": doc.evidence_level,
+                "population": doc.population, "contraindications": doc.contraindications,
+                "review_due_at": doc.review_due_at.isoformat() if doc.review_due_at else None,
                 "reviewed_at": doc.reviewed_at.isoformat() if doc.reviewed_at else None,
                 "content_hash": doc.content_hash}
 

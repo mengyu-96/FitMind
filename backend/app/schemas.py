@@ -61,6 +61,10 @@ class KnowledgeCreateRequest(StrictModel):
     body: str = Field(min_length=1, max_length=12000)
     source_name: str = Field(min_length=1, max_length=300)
     source_url: str | None = Field(default=None, max_length=2000)
+    topic: str = Field(default="general", min_length=2, max_length=120)
+    evidence_level: Literal["reviewed_general", "guideline", "systematic_review", "trial", "expert_consensus"] = "reviewed_general"
+    population: str = Field(default="一般成年用户", min_length=1, max_length=500)
+    contraindications: str = Field(default="", max_length=2000)
 
 
 class KnowledgeRevisionRequest(StrictModel):
@@ -69,6 +73,10 @@ class KnowledgeRevisionRequest(StrictModel):
     body: str = Field(min_length=1, max_length=12000)
     source_name: str = Field(min_length=1, max_length=300)
     source_url: str | None = Field(default=None, max_length=2000)
+    topic: str = Field(default="general", min_length=2, max_length=120)
+    evidence_level: Literal["reviewed_general", "guideline", "systematic_review", "trial", "expert_consensus"] = "reviewed_general"
+    population: str = Field(default="一般成年用户", min_length=1, max_length=500)
+    contraindications: str = Field(default="", max_length=2000)
 
 
 class KnowledgeReviewRequest(StrictModel):
